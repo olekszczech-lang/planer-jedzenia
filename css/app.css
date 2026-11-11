@@ -479,3 +479,14 @@ body.cookmode main { padding-top: calc(8px + env(safe-area-inset-top)); }
 @media (max-width: 420px) { .cook-row { grid-template-columns: 1fr auto; } .cook-row > span { grid-column: 1 / -1; } }
 .day-sess { margin: 2px 0 4px; }
 .day-sess .chip { font-size: .72rem; padding: 1px 8px; text-decoration: none; }
+
+/* ── v10: odświeżanie danych pokazanych z pamięci telefonu ── */
+body.refreshing .topbar::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 3px; pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent) no-repeat;
+  background-size: 40% 100%;
+  animation: refreshbar 1.1s linear infinite;
+}
+@keyframes refreshbar { from { background-position: -60% 0; } to { background-position: 160% 0; } }
+@media (prefers-reduced-motion: reduce) { body.refreshing .topbar::after { animation: none; background-size: 100% 100%; opacity: .5; } }
+.fresh-note { margin: .25rem 0 .5rem; }

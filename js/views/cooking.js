@@ -35,6 +35,9 @@ export async function render(root, q, ctx) {
   const from = mondayOf(isKey(q.w) ? q.w : today());
   const to = addDays(from, 6);
   let tab = q.s !== undefined ? Number(q.s) : null;
+  // Sesję wybieramy po ID (a nie po numerze zakładki): po odświeżeniu danych kolejność zakładek może się zmienić.
+  let want = q.sid || null;  // sesja z linku (Tydzień, zapis sesji) – wybierana, gdy pojawi się w świeżych danych
+  let selId = null;          // aktualnie otwarta sesja
   let data = null;
   let done = {};
   try { done = JSON.parse(localStorage.getItem(DONE_KEY) || '{}'); } catch { /* puste */ }
@@ -47,6 +50,7 @@ export async function render(root, q, ctx) {
     </div>
     <div class="tabs" data-tabs></div>
     <div class="toolbar"><button class="btn ghost small" data-newsess>➕ Gotuj w innym terminie</button><a class="small" href="#/ustawienia?k=gotowanie">⚙️ Dni gotowania</a></div>
+    <p class="small muted fresh-note" data-fresh hidden>🔄 Pokazuję zapisany plan – sprawdzam zmiany z Tygodnia…</p>
     <section data-list><div class="loading">Układam plan sesji…</div></section>`;
 
   const chk = (id, inner) => `<label class="${done[id] ? 'done' : ''}"><input type="checkbox" data-step="${h(id)}" ${done[id] ? 'checked' : ''}><span>${inner}</span></label>`;
@@ -82,7 +86,7 @@ export async function render(root, q, ctx) {
         <p class="small muted">Gotujesz na: ${s.dni.map(k => h(fmtDay(k))).join(', ')}${s.staly === false ? ' · <b>sesja dodatkowa</b>' : ''}</p>
         <div class="chips">${s.potrawy.map(p => `<a class="chip ${p.baza ? 'strong' : ''}" href="#/przepis?id=${encodeURIComponent(p.ID_Pot)}&back=1">${MODE_ICON[p.tryb] || ''} ${h(p.Nazwa)} ×${fmtNum(p.mnoznik, 2)}</a>`).join('')}</div>
         ${s.ostrzezenia.length ? `<div class="warnbox">${s.ostrzezenia.map(w => `<p>⚠️ ${h(w)}</p>`).join('')}</div>` : ''}
-        <a class="btn block cm-start" href="#/gotuj?w=${from}&s=${tab}">▶️ Tryb gotowania – krok po kroku</a>
+        <a class="btn block cm-start" href="#/gotuj?w=${from}&s=${tab}&sid=${encodeURIComponent(s.id || '')}">▶️ Tryb gotowania – krok po kroku</a>
         <div class="toolbar">
           <button class="btn ghost small" data-export="calendar">📅 Do Kalendarza</button>
           <button class="btn ghost small" data-export="todoist">✅ Do Todoist</button>
@@ -156,21 +160,24 @@ export async function render(root, q, ctx) {
       </div>`).join('')}
     </article>`).join('');
 
-  const draw = raw => {
+  const draw = (raw, meta = {}) => {
     if (!ctx.alive()) return;
     const d = normSessions(raw);
     data = d;
+    const find = id => (id ? d.sesje.findIndex(s => s.id === id) : -1);
+    let i = find(want);
+    if (i >= 0) { tab = i; if (!meta.stale) want = null; } // link do sesji honorujemy raz – potem decydują kliknięcia
+    else if ((i = find(selId)) >= 0) tab = i;
     if (tab === null) {
       // domyślnie: najbliższa sesja od dziś (dziś też), inaczej ostatnia z zaplanowanym gotowaniem
       const t = today();
       const idx = d.sesje.findIndex(s => s.data >= t && s.potrawy.length);
       tab = idx >= 0 ? idx : Math.max(0, d.sesje.map(s => !!s.potrawy.length).lastIndexOf(true));
     }
-    if (q.sid) {
-      const i = d.sesje.findIndex(s => s.id === q.sid);
-      if (i >= 0) tab = i;
-    }
     if (tab !== 9 && !d.sesje[tab]) tab = d.sesje.length ? 0 : 9;
+    selId = tab === 9 ? null : d.sesje[tab].id;
+    const note = root.querySelector('[data-fresh]');
+    if (note) note.hidden = !meta.stale;
     drawTabs();
     const box = root.querySelector('[data-list]');
     box.innerHTML = tab === 9 ? drawFresh() : drawSession(d.sesje[tab] || d.sesje[0]);
@@ -223,8 +230,10 @@ export async function render(root, q, ctx) {
     const t = ev.target.closest('[data-tab]');
     if (t) {
       tab = Number(t.dataset.tab);
-      history.replaceState(null, '', `#/gotowanie?w=${from}&s=${tab}`);
-      draw(data);
+      want = null;
+      selId = tab === 9 ? null : (data.sesje[tab] || {}).id || null;
+      history.replaceState(null, '', `#/gotowanie?w=${from}${selId ? '&sid=' + encodeURIComponent(selId) : '&s=' + tab}`);
+      draw(data, { stale: !root.querySelector('[data-fresh]')?.hidden });
       window.scrollTo(0, 0);
       return;
     }
@@ -242,7 +251,7 @@ export async function render(root, q, ctx) {
     const fz = ev.target.closest('[data-freeze]');
     if (fz) {
       await busy(fz, async () => {
-        const r = await call('freezeSession', { from, sesja: tab });
+        const r = await call('freezeSession', { from, sesja: tab, id: session().id });
         toast(r.length ? `Dodano ${r.length} porcji do rejestru zamrażarki` : 'Te porcje już są w rejestrze', 'ok');
       });
     }

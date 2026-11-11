@@ -129,7 +129,8 @@ function recipePages(id, x) {
 export async function render(root, q, ctx) {
   let pages, exitHash, modeKey, sessionRef = null;
   const w = mondayOf(isKey(q.w) ? q.w : today());
-  exitHash = q.przepis ? '#/przepis?id=' + encodeURIComponent(q.przepis) : `#/gotowanie?w=${w}&s=${q.s || 0}`;
+  exitHash = q.przepis ? '#/przepis?id=' + encodeURIComponent(q.przepis)
+    : `#/gotowanie?w=${w}${q.sid ? '&sid=' + encodeURIComponent(q.sid) : '&s=' + (q.s || 0)}`;
   root.innerHTML = '<div class="loading">Układam kroki…</div>';
 
   try {
@@ -148,7 +149,7 @@ export async function render(root, q, ctx) {
       pages = freshPages(day.data, p);
       modeKey = 'f|' + day.data + '|' + p.ID_Pot;
     } else {
-      sessionRef = data.sesje[Number(q.s) || 0];
+      sessionRef = (q.sid && data.sesje.find(s => s.id === q.sid)) || data.sesje[Number(q.s) || 0];
       if (!sessionRef || !sessionRef.potrawy.length) { root.innerHTML = '<div class="empty"><p>W tej sesji nie ma nic do gotowania.</p></div>'; return; }
       pages = sessionPages(sessionRef);
       modeKey = 's|' + sessionRef.data;
@@ -358,7 +359,7 @@ export async function render(root, q, ctx) {
     const fz = e.target.closest('[data-freeze]');
     if (fz) {
       await busy(fz, async () => {
-        const r = await call('freezeSession', { from: w, sesja: Number(q.s) || 0 });
+        const r = await call('freezeSession', { from: w, sesja: Number(q.s) || 0, id: sessionRef && sessionRef.id });
         toast(r.length ? `Dodano ${r.length} porcji do zamrażarki` : 'Te porcje już są w rejestrze', 'ok');
       });
     }

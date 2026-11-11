@@ -9,6 +9,25 @@ const OUTBOX = 'outbox';
 const CACHE_VER = 7;
 const listeners = new Set();
 
+// Akcje zmieniające plan, sesje albo przepisy. Po nich zapisane w telefonie widoki pochodne (tydzień, dzień,
+// sesje gotowania, kalendarz sesji) są nieaktualne – usuwamy je, żeby ekran nie pokazał np. Gotowania bez nowych dań.
+const PLAN_CHANGES = new Set(['setMeals', 'removeMeal', 'updateEntry', 'autoFill', 'recalcPortions', 'applyTemplate',
+  'setActualWeight', 'saveSession', 'deleteSession', 'saveCookingSettings', 'updateProfile', 'addProfile', 'setSchedule',
+  'saveRecipe', 'replaceIngredient', 'skipEntry', 'unskipEntry', 'recalcNutrition', 'importLibrary', 'fillProducts',
+  'updateIngredients', 'migrate']);
+const PLAN_CACHES = ['c:plan:', 'c:sessions:', 'c:scal:'];
+
+const changesPlan = (action, params) => PLAN_CHANGES.has(action) ||
+  (action === 'batch' && Array.isArray(params.ops) && params.ops.some(o => o && PLAN_CHANGES.has(o.action)));
+
+/** Usuwa z pamięci telefonu zapisy o podanych prefiksach (cache to tylko przyspieszenie – błędy pomijamy). */
+export async function dropCache(prefixes = PLAN_CACHES) {
+  try {
+    const ks = await db.keys();
+    await Promise.all(ks.filter(k => typeof k === 'string' && prefixes.some(p => k.startsWith(p))).map(k => db.del(k)));
+  } catch { /* nic */ }
+}
+
 export class ApiError extends Error {
   constructor(msg, network) { super(msg); this.network = !!network; }
 }
@@ -47,6 +66,7 @@ export async function call(action, params = {}) {
   let j;
   try { j = await res.json(); } catch { throw new ApiError('Serwer zwrócił nieprawidłową odpowiedź – sprawdź adres API'); }
   if (!j.ok) throw new ApiError(j.error || 'Nieznany błąd');
+  if (changesPlan(action, params)) await dropCache();
   return j.data;
 }
 
@@ -77,6 +97,7 @@ export async function live(key, action, params, draw) {
     // zapis w pamięci telefonu, którego nie da się narysować (np. stary format), nie może blokować pobrania świeżych danych
     try { draw(cached, { stale: true }); } catch (e) { recordError(e, 'cache ' + key); cached = undefined; }
   }
+  if (cached !== undefined) refreshing(1); // pasek „odświeżam” pod nagłówkiem, dopóki nie przyjdą świeże dane
   try {
     const data = await call(action, params);
     await writeCache(key, data);
@@ -86,7 +107,15 @@ export async function live(key, action, params, draw) {
     if (cached === undefined) throw e;
     if (!e.network) throw e;
     return cached; // offline: zostają dane z cache
+  } finally {
+    if (cached !== undefined) refreshing(-1);
   }
+}
+
+let pendingFresh = 0;
+function refreshing(d) {
+  pendingFresh = Math.max(0, pendingFresh + d);
+  document.body.classList.toggle('refreshing', pendingFresh > 0);
 }
 
 // ── Kolejka zapisów (offline) ──────────────────────────────
