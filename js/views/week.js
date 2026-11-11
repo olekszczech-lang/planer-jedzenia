@@ -19,7 +19,11 @@ export async function render(root, q, ctx) {
     const s = sessOf(d);
     const cook = cookingOn(d);
     return (cook.length ? cook.map(c => `<a class="chip strong" href="#/gotowanie?w=${mondayOf(c.od)}&sid=${encodeURIComponent(c.id)}">🔪 gotujesz na ${h(coverText(c.dni))}</a>`).join('') : '') +
-      (s ? `<span class="chip">🍳 z sesji ${h(shortDay(s.data))}</span>` : (cal ? '<span class="chip">🥚 na świeżo</span>' : ''));
+      (s ? `<span class="chip">🍳 z sesji ${h(shortDay(s.data))}</span>`
+        : !cal ? ''
+        : (cal.ustawienia && cal.ustawienia.dni.length && d >= today()
+          ? `<a class="chip warn" href="#/gotowanie?w=${from}" title="Ten dzień nie jest w żadnej sesji gotowania">⚠️ bez sesji – na świeżo</a>`
+          : '<span class="chip">🥚 na świeżo</span>'));
   };
   let view = localStorage.getItem('planer.weekView') || 'dni';
   let person = localStorage.getItem('planer.weekPerson') || S.idx.aktywne[0];

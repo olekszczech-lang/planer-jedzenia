@@ -316,7 +316,7 @@ export async function render(root, q = {}) {
         const u = await call('saveCookingSettings', { dni, godziny, warianty: Number(f.elements.warianty.value) });
         S.boot.sesjeUst = u;
         await ensureBoot(true);
-        toast(u.dni.length ? 'Zapisano dni gotowania – sesje i plan pracy przeliczą się same' : 'Zapisano: bez stałych sesji', 'ok', 4500);
+        toast(u.dni.length ? 'Zapisano. Nowe dni gotowania obowiązują od dziś – sesje, które już były, zostają bez zmian' : 'Zapisano: bez stałych sesji', 'ok', 5000);
       });
     } else if (f.matches('[data-integr]')) {
       await busy(btn, async () => {

@@ -47,11 +47,12 @@ const span = (a, b) => Math.round((parseKey(b) - parseKey(a)) / 864e5) + 1;
 /**
  * Okno sesji: s = istniejąca sesja (stała „R…” → przesunięcie, dodatkowa → zmiana) albo null (nowa).
  * known: sesje, które już widać (do ostrzeżenia, które przejmą dni). onSaved(id, od) po zapisie.
+ * init: wartości startowe pól (np. {od, do} – dołączenie dni bez sesji).
  */
-export function editSession(s, known, onSaved) {
+export function editSession(s, known, onSaved, init = {}) {
   const t = today();
-  const v = s ? { data: s.data, od: s.od || s.dni[0], do: s.do || s.dni[s.dni.length - 1], nazwa: s.staly ? '' : s.nazwa, godzina: s.godzina || '' }
-    : { data: t, od: addDays(t, 1), do: addDays(t, 4), nazwa: '', godzina: '' };
+  const v = { ...(s ? { data: s.data, od: s.od || s.dni[0], do: s.do || s.dni[s.dni.length - 1], nazwa: s.staly ? '' : s.nazwa, godzina: s.godzina || '' }
+    : { data: t, od: addDays(t, 1), do: addDays(t, 4), nazwa: '', godzina: '' }), ...init };
   const title = !s ? 'Dodatkowa sesja gotowania' : (s.staly ? `Przesuń sesję: ${s.nazwa} ${shortDay(s.data)}` : `Sesja: ${s.nazwa} ${shortDay(s.data)}`);
   const m = sheet(title, `
     <form class="form" data-sess>

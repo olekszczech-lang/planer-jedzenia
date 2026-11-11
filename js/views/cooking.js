@@ -50,6 +50,7 @@ export async function render(root, q, ctx) {
     </div>
     <div class="tabs" data-tabs></div>
     <div class="toolbar"><button class="btn ghost small" data-newsess>➕ Gotuj w innym terminie</button><a class="small" href="#/ustawienia?k=gotowanie">⚙️ Dni gotowania</a></div>
+    <div data-gaps></div>
     <p class="small muted fresh-note" data-fresh hidden>🔄 Pokazuję zapisany plan – sprawdzam zmiany z Tygodnia…</p>
     <section data-list><div class="loading">Układam plan sesji…</div></section>`;
 
@@ -178,12 +179,31 @@ export async function render(root, q, ctx) {
     selId = tab === 9 ? null : d.sesje[tab].id;
     const note = root.querySelector('[data-fresh]');
     if (note) note.hidden = !meta.stale;
+    drawGaps();
     drawTabs();
     const box = root.querySelector('[data-list]');
     box.innerHTML = tab === 9 ? drawFresh() : drawSession(d.sesje[tab] || d.sesje[0]);
   };
 
   const session = () => data.sesje[tab] || data.sesje[0];
+
+  // Dni z daniami „do sesji”, których nie gotuje żadna sesja (np. po zmianie dni gotowania w środku tygodnia).
+  const gaps = () => (data && Array.isArray(data.bezSesji) ? data.bezSesji : []).filter(k => k >= today());
+  // najpóźniejsza nadchodząca sesja, która gotuje nie później niż pierwszy taki dzień – do niej proponujemy je dołączyć
+  const gapTarget = g => data.sesje.filter(s => s.data >= today() && s.data <= g[0]).sort((a, b) => b.data.localeCompare(a.data))[0] || null;
+  const drawGaps = () => {
+    const box = root.querySelector('[data-gaps]');
+    if (!box) return;
+    const g = gaps();
+    if (!g.length) { box.innerHTML = ''; return; }
+    const t = gapTarget(g);
+    box.innerHTML = `<div class="warnbox">
+      <p>⚠️ <b>${g.map(k => h(fmtDay(k))).join(', ')}</b> – ${g.length === 1 ? 'na ten dzień' : 'na te dni'} nie gotuje żadna sesja
+        (zmieniły się dni gotowania). Dania są na razie w „🥚 Na świeżo”.</p>
+      <p><button class="btn small" data-gapfix>${t ? `📅 Dołącz do sesji ${h(t.nazwa)} ${h(shortDay(t.data))}` : '🔥 Dodaj sesję na te dni'}</button></p>
+    </div>`;
+  };
+  const afterSave = (id, od) => ctx.go(`#/gotowanie?w=${mondayOf(od)}${id ? '&sid=' + encodeURIComponent(id) : ''}`);
 
   root.onchange = ev => {
     const cb = ev.target.closest('[data-step]');
@@ -224,7 +244,17 @@ export async function render(root, q, ctx) {
     const es = ev.target.closest('[data-newsess], [data-editsess]');
     if (es) {
       const s = es.matches('[data-editsess]') && data ? session() : null;
-      editSession(s, data ? data.sesje : [], (id, od) => ctx.go(`#/gotowanie?w=${mondayOf(od)}${id ? '&sid=' + encodeURIComponent(id) : ''}`));
+      editSession(s, data ? data.sesje : [], afterSave);
+      return;
+    }
+    if (ev.target.closest('[data-gapfix]') && data) {
+      const g = gaps();
+      if (!g.length) return;
+      const first = g[0], last = g[g.length - 1];
+      const t = gapTarget(g);
+      // sesja docelowa rozszerzona o dni bez sesji albo nowa: gotujesz dziś (lub w pierwszy taki dzień) na te dni
+      editSession(t, data.sesje, afterSave, t ? { od: first < t.od ? first : t.od, do: last > t.do ? last : t.do }
+        : { data: today() <= first ? today() : first, od: first, do: last });
       return;
     }
     const t = ev.target.closest('[data-tab]');
