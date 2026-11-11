@@ -3,7 +3,7 @@ import { getSettings, saveSettings, call, flush, status, isConfigured } from '..
 import { S, ensureBoot } from '../state.js';
 import * as db from '../db.js';
 import { busy, toast } from '../ui.js';
-import { h, truthy, num } from '../util.js';
+import { h, truthy, num, APP_VERSION } from '../util.js';
 
 const MEALS = ['Śniadanie', 'II śniadanie', 'Obiad', 'Podwieczorek', 'Przekąska', 'Kolacja'];
 const ACT = ['niska', 'umiarkowana', 'wysoka', 'bardzo wysoka'];
@@ -144,7 +144,8 @@ export async function render(root) {
         <button class="btn ghost danger" data-clear>Wyczyść pamięć</button>
       </div>
       <p class="small muted">„Wyczyść pamięć” usuwa dane zapisane w telefonie (bez niewysłanych zmian).</p>
-    </article>`;
+    </article>
+    <p class="app-version">Planer jedzenia · wersja aplikacji ${APP_VERSION}</p>`;
 
   if (connected) {
     call('integrations').then(i => {

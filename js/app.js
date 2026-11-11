@@ -2,7 +2,8 @@
 import { S, ensureBoot } from './state.js';
 import { onStatus, flush, isConfigured, enqueue } from './api.js';
 import { toast, sheet } from './ui.js';
-import { h, truthy } from './util.js';
+import { h, truthy, APP_VERSION } from './util.js';
+import { recordError, lastError, clearError, describe } from './diag.js';
 import * as today from './views/today.js';
 import * as week from './views/week.js';
 import * as shopping from './views/shopping.js';
@@ -50,6 +51,7 @@ async function route() {
   const id = ++navId;
   document.querySelectorAll('.sheet-wrap').forEach(w => w.remove()); // okienka nie przechodzą na inny ekran
   if (window.__viewCleanup) { try { window.__viewCleanup(); } catch { /* widok już zamknięty */ } window.__viewCleanup = null; }
+  document.body.classList.remove('cookmode');
   scrollMemory[currentHash] = window.scrollY;
   const back = scrollMemory[location.hash];
   currentHash = location.hash;
@@ -75,12 +77,17 @@ async function route() {
     if (id === navId) window.scrollTo(0, back || 0);
   } catch (e) {
     if (id !== navId) return;
+    recordError(e, 'ekran ' + name);
+    document.body.classList.remove('cookmode');
     root.innerHTML = `<div class="empty">
       <p><strong>Nie udało się wczytać danych.</strong></p>
       <p class="muted">${h(e.message || e)}</p>
-      <p><button class="btn" data-retry>Spróbuj ponownie</button> <a class="btn ghost" href="#/ustawienia">Ustawienia</a></p>
+      <p><button class="btn" data-retry>Spróbuj ponownie</button> <button class="btn ghost" data-report>💬 Zgłoś błąd</button> <a class="btn ghost" href="#/ustawienia">Ustawienia</a></p>
     </div>`;
-    root.onclick = ev => { if (ev.target.closest('[data-retry]')) route(); };
+    root.onclick = ev => {
+      if (ev.target.closest('[data-retry]')) route();
+      if (ev.target.closest('[data-report]')) openFeedback({ typ: 'błąd', opis: `Ekran „${r.title}” się nie wczytuje.` });
+    };
   }
 }
 
@@ -98,16 +105,20 @@ window.addEventListener('planer:sync-errors', e => {
 });
 
 // ── Szybka uwaga z testów (trafia do arkusza „uwagi z testów”, działa też offline) ──
-document.getElementById('feedback').addEventListener('click', () => {
-  const ekran = `${document.getElementById('title').textContent} (${location.hash || '#/dzis'})`;
+// prefill: {typ, opis, ekran} – np. z ekranu błędu. Ostatni błąd techniczny (≤ 30 min) można dołączyć jednym ptaszkiem.
+function openFeedback(prefill = {}) {
+  const ekran = prefill.ekran || `${document.getElementById('title').textContent} (${location.hash || '#/dzis'}) · ${APP_VERSION}`;
   const adults = S.boot ? S.boot.osoby.filter(o => o.Rola !== 'dziecko' && truthy(o.Aktywna)) : [];
   const last = localStorage.getItem('planer.feedbackWho') || '';
+  const err = lastError();
+  const typ = prefill.typ || (err ? 'błąd' : 'pomysł');
   const s = sheet('Uwaga z testów', `
     <form class="form" data-fb>
       <p class="small muted">Ekran: ${h(ekran)}</p>
       ${adults.length ? `<label>Kto<select class="input" name="kto">${adults.map(o => `<option ${o.Nazwa === last ? 'selected' : ''}>${h(o.Nazwa)}</option>`).join('')}</select></label>` : ''}
-      <label>Typ<select class="input" name="typ"><option>błąd</option><option selected>pomysł</option><option>dane w przepisie</option><option>wygląd</option><option>inne</option></select></label>
-      <label>Opis<textarea class="input" name="opis" rows="4" required placeholder="Co się stało / co zmienić?"></textarea></label>
+      <label>Typ<select class="input" name="typ">${['błąd', 'pomysł', 'dane w przepisie', 'wygląd', 'inne'].map(t => `<option ${t === typ ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+      <label>Opis<textarea class="input" name="opis" rows="4" required placeholder="Co się stało / co zmienić?">${h(prefill.opis || '')}</textarea></label>
+      ${err ? `<label class="check small"><input type="checkbox" name="diag" checked> Dołącz szczegóły ostatniego błędu: <span class="muted">${h(err.msg)}</span></label>` : ''}
       <label>Priorytet<select class="input" name="priorytet"><option>wysoki</option><option selected>średni</option><option>niski</option></select></label>
       <button class="btn">Wyślij</button>
     </form>`);
@@ -121,11 +132,17 @@ document.getElementById('feedback').addEventListener('click', () => {
     f.querySelector('button').disabled = true;
     const kto = f.elements.kto ? f.elements.kto.value : '';
     if (kto) localStorage.setItem('planer.feedbackWho', kto);
-    enqueue('feedback', { kto, ekran, typ: f.elements.typ.value, opis: f.elements.opis.value.trim(), priorytet: f.elements.priorytet.value });
+    let opis = f.elements.opis.value.trim();
+    if (err && f.elements.diag && f.elements.diag.checked) { opis += '\n\n[diagnostyka] ' + describe(err); clearError(); }
+    enqueue('feedback', { kto, ekran, typ: f.elements.typ.value, opis, priorytet: f.elements.priorytet.value });
     s.close();
     toast('Dzięki! Uwaga zapisana' + (navigator.onLine ? '' : ' (wyśle się po powrocie sieci)'), 'ok');
   });
-});
+}
+window.__openFeedback = openFeedback;
+document.getElementById('feedback').addEventListener('click', () => openFeedback());
+window.addEventListener('error', e => recordError(e.error || e.message, 'okno'));
+window.addEventListener('unhandledrejection', e => recordError(e.reason, 'promise'));
 
 window.addEventListener('hashchange', () => { window.__inAppNav++; route(); });
 timers.init();

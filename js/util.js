@@ -1,5 +1,7 @@
 // Daty jako klucze "yyyy-mm-dd" w czasie lokalnym, formatowanie liczb, escapowanie HTML.
 
+export const APP_VERSION = 'v7';
+
 export const MEALS = ['Śniadanie', 'Obiad', 'Kolacja', 'Przekąska'];
 
 const pad = n => String(n).padStart(2, '0');

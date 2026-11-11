@@ -354,8 +354,9 @@ tr.tap:hover td { background: var(--surface-2); }
 .wtable td div + div { margin-top: 4px; }
 
 .ed-row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; padding: 8px 0; border-top: 1px dashed var(--border); align-items: center; }
-.ing-row { grid-template-columns: 2.2fr .9fr .8fr 1.4fr auto; }
-.ing-row .wide { grid-column: 1 / -2; }
+.ing-row { grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr) minmax(0, .8fr); }
+.ing-row .wide { grid-column: 1 / 3; }
+.ing-row .row-btns { display: flex; justify-content: flex-end; }
 .ed-row .span-all { grid-column: 1 / -1; }
 .ed-row .input { min-height: 38px; font-size: .85rem; padding: 0 8px; }
 .ed-row textarea.input { min-height: 60px; padding: 6px 8px; }
@@ -441,3 +442,21 @@ body.cookmode main { padding-top: calc(8px + env(safe-area-inset-top)); }
 .cm-nav .btn { min-height: 56px; font-size: 1.1rem; }
 .nw { white-space: nowrap; }
 .cm-check small { display: block; line-height: 1.35; margin-top: 2px; }
+
+/* ── v7: sekcje składników w edytorze, import ─────── */
+.ing-group { border: 1px solid var(--border); border-radius: 12px; padding: 8px 10px; margin: 8px 0; background: var(--surface-2); }
+.ing-group-head { display: flex; align-items: center; gap: 6px; }
+.ing-group-head .sec-name { font-weight: 700; min-height: 40px; }
+.ing-group .ed-row { border-top-color: color-mix(in srgb, var(--border) 70%, transparent); }
+.ing-group .toolbar { margin: 6px 0 2px; }
+.step-skl { display: flex; flex-direction: column; gap: 2px; }
+.step-skl .chips { margin: 2px 0; }
+.step-skl .chip { cursor: pointer; }
+.cm-error { padding: 24px 4px; }
+.cm-error pre { white-space: pre-wrap; font-size: .75rem; color: var(--muted); background: var(--surface-2); padding: 8px; border-radius: 8px; }
+.app-version { font-size: .75rem; color: var(--muted); text-align: center; margin: 16px 0; }
+/* atrybut hidden zawsze wygrywa z display:flex/grid komponentów (np. „Nowy składnik”) */
+[hidden] { display: none !important; }
+@media (max-width: 560px) {
+  .step-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}

@@ -9,8 +9,36 @@ import { openLabels } from '../labels.js';
 import * as timers from '../timers.js';
 import { busy, toast } from '../ui.js';
 import { h, fmtNum, fmtQty, fmtDay, mondayOf, today, isKey, num } from '../util.js';
+import { recordError } from '../diag.js';
 
 const DONE_KEY = 'planer.sessionDone';
+
+/** Plan sesji w aktualnym formacie (stary zapis w pamięci telefonu nie może wywrócić trybu). */
+const validSessions = d => !!d && Array.isArray(d.sesje) && Array.isArray(d.swieze) && d.sesje.every(s => s
+  && ['potrawy', 'dania', 'mise', 'przygotowanie', 'marynaty', 'bazy', 'piekarnik', 'skladanie', 'chlodzenie', 'porcjowanie', 'pakowanie', 'dni'].every(k => Array.isArray(s[k])));
+
+async function loadSessions(w) {
+  const key = 'sessions:' + w;
+  const cached = await readCache(key);
+  if (validSessions(cached)) return cached;
+  const data = await call('sessions', { from: w });
+  await writeCache(key, data);
+  if (!validSessions(data)) throw new Error('Plan sesji z serwera ma nieznany format – zaktualizuj API (clasp push i wdrożenie).');
+  return data;
+}
+
+function showError(root, e, exitHash) {
+  recordError(e, 'tryb gotowania');
+  document.body.classList.remove('cookmode');
+  root.innerHTML = `<div class="empty cm-error">
+    <p><strong>Nie udało się otworzyć trybu gotowania.</strong></p>
+    <p class="muted">${h(e.message || e)}</p>
+    <p><a class="btn" href="${h(exitHash)}">‹ Wróć</a> <button class="btn ghost" data-report>💬 Zgłoś błąd</button></p>
+  </div>`;
+  root.onclick = ev => {
+    if (ev.target.closest('[data-report]') && window.__openFeedback) window.__openFeedback({ typ: 'błąd', opis: 'Tryb gotowania się nie otwiera.' });
+  };
+}
 const SPRZET = { piekarnik: '🔥 piekarnik', garnek: '🍲 garnek', patelnia: '🍳 patelnia', blender: '🌀 blender', mikrofala: '📟 mikrofala' };
 const BASE_MIN = [[/kuskus/i, 5], [/bulgur|gryczan|jaglan|komos|quinoa/i, 15], [/pęczak|jęczmien/i, 30], [/ryż.*(brąz|dzik|pełno)/i, 30], [/ryż/i, 15], [/makaron/i, 10], [/ziemniak|batat/i, 20]];
 const baseMin = b => (BASE_MIN.find(([re]) => re.test(b.Nazwa)) || [0, 20])[1];
@@ -100,7 +128,10 @@ function recipePages(id, x) {
 export async function render(root, q, ctx) {
   let pages, exitHash, modeKey, sessionRef = null;
   const w = mondayOf(isKey(q.w) ? q.w : today());
+  exitHash = q.przepis ? '#/przepis?id=' + encodeURIComponent(q.przepis) : `#/gotowanie?w=${w}&s=${q.s || 0}`;
+  root.innerHTML = '<div class="loading">Układam kroki…</div>';
 
+  try {
   if (q.przepis) {
     if (!S.idx.pot[q.przepis]) { root.innerHTML = '<div class="empty"><p>Nie ma takiego przepisu.</p></div>'; return; }
     const x = num(q.x) || 1;
@@ -108,8 +139,7 @@ export async function render(root, q, ctx) {
     exitHash = '#/przepis?id=' + encodeURIComponent(q.przepis);
     modeKey = 'r|' + q.przepis + '|' + x;
   } else {
-    let data = await readCache('sessions:' + w);
-    if (!data) { data = await call('sessions', { from: w }); await writeCache('sessions:' + w, data); }
+    const data = await loadSessions(w);
     if (Number(q.s) === 9) {
       const day = data.swieze.find(d => d.data === q.d);
       const p = day && day.potrawy.find(x => x.ID_Pot === q.id);
@@ -122,7 +152,11 @@ export async function render(root, q, ctx) {
       pages = sessionPages(sessionRef);
       modeKey = 's|' + sessionRef.data;
     }
-    exitHash = `#/gotowanie?w=${w}&s=${q.s || 0}`;
+  }
+  if (!pages || pages.length < 2) throw new Error('Brak kroków do pokazania – przepis nie ma etapów (uzupełnij go w edytorze).');
+  } catch (e) {
+    showError(root, e, exitHash);
+    return;
   }
 
   const posKey = 'planer.cm.' + modeKey;
@@ -239,6 +273,14 @@ export async function render(root, q, ctx) {
     }
   };
 
+  // jeden zepsuty krok nie blokuje całej sesji – pokazujemy komunikat i można iść dalej
+  const safeBody = pg => {
+    try { return body(pg); } catch (e) {
+      recordError(e, 'tryb gotowania: ' + pg.kind);
+      return `<p class="cm-text">Nie udało się pokazać tego kroku.</p><p class="cm-hint">${h(e.message || e)} – przejdź dalej albo zgłoś to przez 💬 po wyjściu (szczegóły dołączą się same).</p>`;
+    }
+  };
+
   const draw = () => {
     const pg = pages[i];
     const pct = Math.round((i + 1) / pages.length * 100);
@@ -250,7 +292,7 @@ export async function render(root, q, ctx) {
         ${doneKey ? `<span class="cm-state">${isDone(doneKey) ? '✓ zrobione' : ''}</span>` : '<span></span>'}
       </div>
       <div class="cm-progress"><span style="width:${pct}%"></span></div>
-      <div class="cm-body">${body(pg)}</div>
+      <div class="cm-body">${safeBody(pg)}</div>
       <div class="cm-nav">
         <button class="btn ghost" data-prev ${i === 0 ? 'disabled' : ''}>‹ Wstecz</button>
         <button class="btn" data-next>${i === pages.length - 1 ? 'Zakończ' : (doneKey || pg.kind === 'mise' ? 'Zrobione ✓ Dalej ›' : 'Dalej ›')}</button>

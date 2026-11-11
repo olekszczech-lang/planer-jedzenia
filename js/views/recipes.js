@@ -200,24 +200,41 @@ function openSubstitutes(root, idPot, idSkl, back) {
   });
 }
 
-/** Import przepisu ze strony → szkic w edytorze. */
+/** Import przepisu ze strony albo z wklejonego tekstu → szkic w edytorze. */
 function importDialog(ctx) {
-  const s = sheet('Import przepisu ze strony', `
-    <form class="form" data-imp>
+  const s = sheet('Import przepisu', `
+    <div class="tabs" data-imptabs>
+      <button type="button" class="tab on" data-mode="url">🔗 Link do strony</button>
+      <button type="button" class="tab" data-mode="text">📋 Wklej tekst</button>
+    </div>
+    <form class="form" data-imp="url">
       <label>Adres przepisu<input class="input" name="url" type="url" required placeholder="https://www.kwestiasmaku.com/przepis/…"></label>
-      <p class="small muted">Pobiorę składniki i kroki, dopasuję składniki do Twojej bazy i podzielę kroki na etapy. Przepis trafi jako <b>szkic</b> – sprawdzisz go i zatwierdzisz w edytorze.</p>
+      <p class="small muted">Pobiorę składniki (z sekcjami, np. sos), ilości przeliczę na gramy, dopasuję do Twojej bazy i podzielę kroki na etapy. Przepis trafi jako <b>szkic</b> – sprawdzisz go i zatwierdzisz w edytorze.</p>
       <button class="btn">Pobierz</button>
+    </form>
+    <form class="form" data-imp="text" hidden>
+      <label>Tekst przepisu<textarea class="input" name="text" rows="10" required placeholder="Sałatka grecka&#10;&#10;200 g fety&#10;2 ogórki&#10;&#10;Sos:&#10;180 g jogurtu greckiego&#10;&#10;Przygotowanie&#10;Ogórki pokrój w kostkę…"></textarea></label>
+      <p class="small muted">Gdy strona się nie wczytuje (albo przepis jest z książki, Instagrama): pierwsza linia = nazwa, potem składniki (linia „Sos:” zaczyna sekcję), potem „Przygotowanie” i kroki.</p>
+      <button class="btn">Przetwórz</button>
     </form>`);
-  s.el.querySelector('[data-imp]').addEventListener('submit', async e => {
+  s.el.querySelector('[data-imptabs]').addEventListener('click', e => {
+    const b = e.target.closest('[data-mode]');
+    if (!b) return;
+    s.el.querySelectorAll('[data-mode]').forEach(x => x.classList.toggle('on', x === b));
+    s.el.querySelectorAll('[data-imp]').forEach(f => { f.hidden = f.dataset.imp !== b.dataset.mode; });
+  });
+  s.el.querySelectorAll('[data-imp]').forEach(f => f.addEventListener('submit', async e => {
     e.preventDefault();
-    const btn = e.target.querySelector('button');
+    const btn = f.querySelector('button');
     await busy(btn, async () => {
-      const draft = await call('importRecipe', { url: e.target.elements.url.value.trim() });
+      const params = f.dataset.imp === 'url' ? { url: f.elements.url.value.trim() } : { text: f.elements.text.value };
+      const draft = await call('importRecipe', params);
+      if (!draft.skladniki.length) toast('Nie znalazłem listy składników – wklej je w edytorze (📋 Wklej listę)', 'error', 6000);
       sessionStorage.setItem('planer.draft', JSON.stringify(draft));
       s.close();
       ctx.go('#/edytor?draft=1');
     });
-  });
+  }));
 }
 
 function comboUsers(produkty) {

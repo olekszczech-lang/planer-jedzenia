@@ -3,7 +3,7 @@
  * Strategia dla plików aplikacji: najpierw sieć (zawsze świeża wersja), przy braku sieci – cache.
  * Żądania do API (inny origin) nie są tu obsługiwane – dane offline trzyma aplikacja w IndexedDB.
  */
-const VERSION = 'planer-v6';
+const VERSION = 'planer-v7';
 const SHELL = [
   './',
   'index.html',
@@ -17,6 +17,7 @@ const SHELL = [
   'js/labels.js',
   'js/substitutes.js',
   'js/timers.js',
+  'js/diag.js',
   'js/views/cookmode.js',
   'js/views/editor.js',
   'js/util.js',
@@ -48,7 +49,8 @@ self.addEventListener('fetch', event => {
   if (req.method !== 'GET' || url.origin !== self.location.origin || url.pathname.endsWith('/api')) return;
 
   event.respondWith(
-    fetch(req)
+    // no-cache: zawsze pytamy serwer (ETag), żeby nie mieszać starych i nowych plików po aktualizacji
+    fetch(req, { cache: 'no-cache' })
       .then(res => {
         if (res.ok) {
           const copy = res.clone();
