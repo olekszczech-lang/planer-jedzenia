@@ -460,3 +460,10 @@ body.cookmode main { padding-top: calc(8px + env(safe-area-inset-top)); }
 @media (max-width: 560px) {
   .step-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+/* ── v8: baza produktów ───────────────────────────── */
+.mm-row { padding: 10px 0; border-top: 1px dashed var(--border); }
+.mm-row .chip { cursor: pointer; margin-left: 4px; }
+.mm-inputs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 6px; }
+.mm-inputs label { display: flex; flex-direction: column; gap: 2px; color: var(--muted); }
+.mm-inputs .input { min-height: 38px; padding: 0 8px; }
+.ok-text { color: var(--accent); }

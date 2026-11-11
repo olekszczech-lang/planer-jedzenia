@@ -133,7 +133,15 @@ export async function render(root) {
       <label>ID Kalendarza Google (puste = główny kalendarz)<input class="input" name="calendarId" data-k="calendarId" placeholder="np. rodzina@group.calendar.google.com"></label>
       <p class="small muted" data-integr-status>Sprawdzam…</p>
       <div class="toolbar"><button class="btn">Zapisz integracje</button></div>
-    </form>` : ''}
+    </form>
+    <article class="card" data-products>
+      <h3>🥗 Baza produktów</h3>
+      <p class="small muted">W bazie: <b>${Object.keys(S.idx.skl).length}</b> produktów. „Uzupełnij” dopisze ok. 100 popularnych produktów (sól, sos sojowy, mięso mielone, napoje roślinne, mąki, sery, ryby…) z kcal, białkiem, tłuszczem i węglowodanami na 100 g i uzupełni makro tam, gdzie go brakuje. Duplikatów nie tworzy – można uruchomić kilka razy.</p>
+      <div class="toolbar"><button class="btn" type="button" data-fill>Uzupełnij bazę produktów</button></div>
+      <div data-fillres></div>
+      <p class="small" data-schema></p>
+      <div data-missing><p class="small muted">Sprawdzam produkty bez makro…</p></div>
+    </article>` : ''}
 
     <article class="card">
       <h3>Synchronizacja</h3>
@@ -156,6 +164,74 @@ export async function render(root) {
       root.querySelector('[data-k=calendarId]').value = i.calendarId || '';
     }).catch(() => {});
   }
+
+  // ── baza produktów: braki makro, uzupełnianie, zaległa migracja ──
+  const missingHtml = list => !list.length ? '<p class="small ok-text">✓ Wszystkie produkty mają makroskładniki.</p>' : `
+    <p class="small"><b>Bez makro: ${list.length}</b> – wpisz wartości z etykiety (na 100 g) albo stuknij podpowiedź:</p>
+    <div class="mm-list">${list.map(x => `<div class="mm-row" data-mm="${h(x.ID_Skl)}">
+      <div><b>${h(x.Nazwa)}</b> <span class="small muted">${h(x.Kategoria)}</span>
+        ${x.podpowiedz ? `<button type="button" class="chip" data-hint='${h(JSON.stringify(x.podpowiedz))}'>jak „${h(x.podpowiedz.nazwa)}” (${x.podpowiedz.kcal_100g} kcal)</button>` : ''}</div>
+      <div class="mm-inputs">${[['kcal_100g', 'kcal'], ['B_100g', 'białko'], ['T_100g', 'tłuszcz'], ['W_100g', 'węgl.']].map(([k, l]) =>
+        `<label class="small">${l}<input class="input num" name="${k}" type="number" step="any" inputmode="decimal" min="0"></label>`).join('')}</div>
+    </div>`).join('')}</div>
+    <div class="toolbar"><button class="btn ghost" type="button" data-savemacros>Zapisz wartości</button></div>`;
+  const showMissing = list => { const el = root.querySelector('[data-missing]'); if (el) el.innerHTML = missingHtml(list); };
+  if (connected) {
+    call('missingMacros').then(showMissing).catch(e => showMissing([]) || toast(e.message, 'error'));
+    call('ping').then(p => {
+      const el = root.querySelector('[data-schema]');
+      if (el && Number(p.schema) < 4) el.innerHTML = `⚠️ Etapy przepisów, sposób krojenia i opakowania (migracja 004) nie są jeszcze wgrane do arkusza. <button type="button" class="btn ghost small" data-migrate>Wgraj teraz</button>`;
+    }).catch(() => {});
+  }
+  const productsClick = async ev => {
+    const hint = ev.target.closest('[data-hint]');
+    if (hint) {
+      const v = JSON.parse(hint.dataset.hint);
+      const row = hint.closest('[data-mm]');
+      ['kcal_100g', 'B_100g', 'T_100g', 'W_100g'].forEach(k => { row.querySelector(`[name=${k}]`).value = v[k]; });
+      return true;
+    }
+    const fill = ev.target.closest('[data-fill]');
+    if (fill) {
+      await busy(fill, async () => {
+        const r = await call('fillProducts');
+        await ensureBoot(true);
+        toast(`Dodano ${r.dodane.length} produktów, uzupełniono makro w ${r.uzupelnione.length}`, 'ok', 5000);
+        root.querySelector('[data-fillres]').innerHTML = r.dodane.length || r.uzupelnione.length ? `<details class="small"><summary>Co się zmieniło</summary>
+          ${r.uzupelnione.length ? `<p><b>Uzupełnione:</b> ${r.uzupelnione.map(h).join(', ')}</p>` : ''}
+          ${r.dodane.length ? `<p><b>Nowe produkty:</b> ${r.dodane.map(h).join(', ')}</p>` : ''}</details>` : '<p class="small muted">Baza była już kompletna.</p>';
+        showMissing(r.brakMakro);
+      });
+      return true;
+    }
+    const save = ev.target.closest('[data-savemacros]');
+    if (save) {
+      const lista = [...root.querySelectorAll('[data-mm]')].map(row => {
+        const v = k => row.querySelector(`[name=${k}]`).value;
+        return { ID_Skl: row.dataset.mm, kcal_100g: v('kcal_100g'), B_100g: v('B_100g'), T_100g: v('T_100g'), W_100g: v('W_100g') };
+      }).filter(x => x.kcal_100g !== '');
+      if (!lista.length) { toast('Wpisz przynajmniej kcal', 'error'); return true; }
+      await busy(save, async () => {
+        const r = await call('updateIngredients', { lista });
+        await ensureBoot(true);
+        toast(`Zapisano ${r.zmieniono} produktów – przeliczono przepisy`, 'ok');
+        showMissing(r.brakMakro);
+      });
+      return true;
+    }
+    const mig = ev.target.closest('[data-migrate]');
+    if (mig) {
+      if (!confirm('Wgrać etapy wszystkich przepisów, sposób krojenia, opakowania sklepowe i rejestr zamrażarki (migracja 004)? Trwa to do minuty.')) return true;
+      await busy(mig, async () => {
+        const r = await call('migrate');
+        await ensureBoot(true);
+        toast(r.wykonano.length ? r.wykonano.join(', ') : 'Wszystko było już aktualne', 'ok', 5000);
+        mig.closest('[data-schema]').textContent = `✓ Dane w wersji ${r.schema}.`;
+      });
+      return true;
+    }
+    return false;
+  };
 
   const rerender = async () => { await ensureBoot(true); await render(root); };
 
@@ -204,6 +280,7 @@ export async function render(root) {
   };
 
   root.onclick = async ev => {
+    if (await productsClick(ev)) return;
     const auto = ev.target.closest('[data-auto]');
     if (auto) {
       const f = auto.closest('form');

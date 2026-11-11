@@ -10,6 +10,7 @@ import * as timers from '../timers.js';
 import { busy, toast } from '../ui.js';
 import { h, fmtNum, fmtQty, fmtDay, mondayOf, today, isKey, num } from '../util.js';
 import { recordError } from '../diag.js';
+import { normSessions } from './cooking.js';
 
 const DONE_KEY = 'planer.sessionDone';
 
@@ -20,11 +21,11 @@ const validSessions = d => !!d && Array.isArray(d.sesje) && Array.isArray(d.swie
 async function loadSessions(w) {
   const key = 'sessions:' + w;
   const cached = await readCache(key);
-  if (validSessions(cached)) return cached;
+  if (validSessions(cached)) return normSessions(cached);
   const data = await call('sessions', { from: w });
   await writeCache(key, data);
   if (!validSessions(data)) throw new Error('Plan sesji z serwera ma nieznany format – zaktualizuj API (clasp push i wdrożenie).');
-  return data;
+  return normSessions(data);
 }
 
 function showError(root, e, exitHash) {

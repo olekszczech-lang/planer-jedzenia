@@ -11,6 +11,25 @@ const DONE_KEY = 'planer.sessionDone';
 const plural = (n, one, few, many) => n === 1 ? one : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? few : many);
 const SPRZET = { piekarnik: '🔥', garnek: '🍲', patelnia: '🍳', blender: '🌀', mikrofala: '📟' };
 
+const LISTS = ['potrawy', 'dania', 'mise', 'przygotowanie', 'marynaty', 'bazy', 'piekarnik', 'skladanie', 'chlodzenie', 'porcjowanie', 'pakowanie', 'dni', 'ostrzezenia'];
+/** Brakujące listy w planie sesji (np. odpowiedź starszego API) → puste, zamiast błędu „reading 'length'”. */
+export function normSessions(d) {
+  const arr = x => (Array.isArray(x) ? x : []);
+  const out = { ...(d || {}), sesje: arr(d && d.sesje), swieze: arr(d && d.swieze) };
+  out.sesje = out.sesje.map(s => {
+    const n = { ...(s || {}) };
+    LISTS.forEach(k => { n[k] = arr(n[k]); });
+    n.dania = n.dania.map(x => ({ ...x, kroki: arr(x && x.kroki), po: arr(x && x.po) }));
+    n.porcjowanie = n.porcjowanie.map(x => ({ ...x, porcje: arr(x && x.porcje) }));
+    n.mise = n.mise.map(x => ({ ...x, dla: arr(x && x.dla) }));
+    n.bazy = n.bazy.map(x => ({ ...x, dla: arr(x && x.dla) }));
+    n.czas_min = Number(n.czas_min) || 0;
+    return n;
+  });
+  out.swieze = out.swieze.map(day => ({ ...day, potrawy: arr(day && day.potrawy).map(p => ({ ...p, kroki: arr(p && p.kroki), porcje: arr(p && p.porcje) })) }));
+  return out;
+}
+
 export async function render(root, q, ctx) {
   const from = mondayOf(isKey(q.w) ? q.w : today());
   const to = addDays(from, 6);
@@ -132,8 +151,9 @@ export async function render(root, q, ctx) {
       </div>`).join('')}
     </article>`).join('');
 
-  const draw = d => {
+  const draw = raw => {
     if (!ctx.alive()) return;
+    const d = normSessions(raw);
     data = d;
     if (tab === null) {
       // domyślnie: najbliższa sesja od dziś (dziś też), inaczej ostatnia z zaplanowanym gotowaniem

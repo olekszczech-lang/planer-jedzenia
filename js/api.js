@@ -1,8 +1,12 @@
 // Komunikacja z Apps Script Web App + cache odczytów + kolejka zapisów offline.
 import * as db from './db.js';
+import { recordError } from './diag.js';
 
 const SETTINGS_KEY = 'planer.settings';
 const OUTBOX = 'outbox';
+// Wersja formatu danych w pamięci telefonu. Podbij, gdy API zmienia kształt odpowiedzi –
+// stare zapisy zostaną pominięte i pobrane od nowa (zamiast wywracać ekran).
+const CACHE_VER = 7;
 const listeners = new Set();
 
 export class ApiError extends Error {
@@ -50,11 +54,11 @@ export async function call(action, params = {}) {
 
 export async function readCache(key) {
   const c = await db.get('c:' + key);
-  return c ? c.d : undefined;
+  return c && c.v === CACHE_VER ? c.d : undefined;
 }
 
 export async function writeCache(key, data) {
-  await db.set('c:' + key, { d: data, t: Date.now() });
+  await db.set('c:' + key, { d: data, t: Date.now(), v: CACHE_VER });
 }
 
 /** Zmienia dane w cache (np. po lokalnej, optymistycznej zmianie). */
@@ -68,8 +72,11 @@ export async function patchCache(key, fn) {
  * draw(data, {stale}) – stale=true dla danych z cache.
  */
 export async function live(key, action, params, draw) {
-  const cached = await readCache(key);
-  if (cached !== undefined) draw(cached, { stale: true });
+  let cached = await readCache(key);
+  if (cached !== undefined) {
+    // zapis w pamięci telefonu, którego nie da się narysować (np. stary format), nie może blokować pobrania świeżych danych
+    try { draw(cached, { stale: true }); } catch (e) { recordError(e, 'cache ' + key); cached = undefined; }
+  }
   try {
     const data = await call(action, params);
     await writeCache(key, data);
