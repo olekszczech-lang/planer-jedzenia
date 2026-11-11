@@ -91,7 +91,10 @@ function renderDetail(root, id, back) {
   root.innerHTML = `
     <div class="row-between">
       ${back && window.__inAppNav > 0 ? '<button class="linkbtn" data-back>‹ Wróć</button>' : '<a href="#/przepisy" class="small">‹ Wszystkie przepisy</a>'}
-      <a class="btn ghost small" href="#/edytor?id=${encodeURIComponent(id)}">✏️ Edytuj</a>
+      <span class="row-gap">
+        ${kroki.length ? `<a class="btn small" href="#/gotuj?przepis=${encodeURIComponent(id)}">▶️ Gotuj</a>` : ''}
+        <a class="btn ghost small" href="#/edytor?id=${encodeURIComponent(id)}">✏️ Edytuj</a>
+      </span>
     </div>
     ${p.Status === 'szkic' ? '<div class="warnbox"><p>📝 Szkic – sprawdź składniki i etapy w edytorze i zatwierdź. Szkice nie trafiają do planowania.</p></div>' : ''}
     <article class="card">

@@ -1,6 +1,7 @@
 // Etykiety na pojemniki: arkusz A4 (np. 70×37 mm, 24 szt.) albo pojedyncze 50×30 mm (drukarka etykiet).
 // Obrazki PNG 50×30 mm (203 dpi) można udostępnić do aplikacji drukarki (Web Share) albo pobrać.
 import { h, fmtNum, parseKey } from './util.js';
+import { sheet, toast } from './ui.js';
 
 export const FORMATS = {
   'a4-70x37': { nazwa: 'Arkusz A4, 24 etykiety 70×37 mm', w: 70, h: 37, cols: 3, rows: 8 },
@@ -92,4 +93,31 @@ export async function shareLabelImages(items) {
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   });
   return 'downloaded';
+}
+
+/** Okienko wyboru formatu: druk arkusza/rolki albo obrazy do aplikacji drukarki. */
+export function openLabels(items) {
+  const saved = localStorage.getItem('planer.labelFormat') || 'a4-70x37';
+  const s = sheet('Etykiety', `
+    <p class="small muted">${items.length} etykiet: osoba, danie, dzień, gramy, kcal, „zjeść do”, co dodać po odgrzaniu (smoothie: co dodać rano).</p>
+    <label class="form-row">Format
+      <select class="input" data-format>${Object.entries(FORMATS).map(([k, f]) => `<option value="${k}" ${k === saved ? 'selected' : ''}>${h(f.nazwa)}</option>`).join('')}</select>
+    </label>
+    <div class="actions-list">
+      <button class="btn" data-print>🖨️ Drukuj</button>
+      <button class="btn ghost" data-share>📲 Obrazy 50×30 do aplikacji drukarki</button>
+    </div>`);
+  s.el.addEventListener('click', async e => {
+    const fmt = s.el.querySelector('[data-format]').value;
+    localStorage.setItem('planer.labelFormat', fmt);
+    if (e.target.closest('[data-print]')) {
+      try { printLabels(items, fmt); } catch (err) { toast(err.message, 'error'); }
+    }
+    if (e.target.closest('[data-share]')) {
+      try {
+        const r = await shareLabelImages(items);
+        if (r === 'downloaded') toast('Pobrano obrazy etykiet', 'ok');
+      } catch (err) { if (err.name !== 'AbortError') toast(err.message, 'error'); }
+    }
+  });
 }

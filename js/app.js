@@ -10,6 +10,8 @@ import * as cooking from './views/cooking.js';
 import * as recipes from './views/recipes.js';
 import * as settings from './views/settings.js';
 import * as editor from './views/editor.js';
+import * as cookmode from './views/cookmode.js';
+import * as timers from './timers.js';
 
 const ROUTES = {
   dzis: { view: today, title: 'Dziś' },
@@ -19,6 +21,7 @@ const ROUTES = {
   przepisy: { view: recipes, title: 'Przepisy' },
   przepis: { view: recipes, title: 'Przepis', nav: 'przepisy' },
   edytor: { view: editor, title: 'Edytor przepisu', nav: 'przepisy' },
+  gotuj: { view: cookmode, title: 'Tryb gotowania', nav: 'gotowanie' },
   ustawienia: { view: settings, title: 'Ustawienia', needsBoot: false }
 };
 
@@ -46,6 +49,7 @@ function makeCtx(id) {
 async function route() {
   const id = ++navId;
   document.querySelectorAll('.sheet-wrap').forEach(w => w.remove()); // okienka nie przechodzą na inny ekran
+  if (window.__viewCleanup) { try { window.__viewCleanup(); } catch { /* widok już zamknięty */ } window.__viewCleanup = null; }
   scrollMemory[currentHash] = window.scrollY;
   const back = scrollMemory[location.hash];
   currentHash = location.hash;
@@ -58,6 +62,8 @@ async function route() {
   root.oninput = null;
   root.onchange = null;
   root.onsubmit = null;
+  root.ontouchstart = null;
+  root.ontouchend = null;
 
   try {
     if (r.needsBoot !== false) {
@@ -122,6 +128,7 @@ document.getElementById('feedback').addEventListener('click', () => {
 });
 
 window.addEventListener('hashchange', () => { window.__inAppNav++; route(); });
+timers.init();
 route();
 flush();
 

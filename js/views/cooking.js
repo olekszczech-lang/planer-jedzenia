@@ -3,8 +3,8 @@
 // porcjowanie per danie (waga rzeczywista → podział, etykiety, rejestr zamrażarki).
 import { live, call } from '../api.js';
 import { MODE_ICON } from '../state.js';
-import { busy, toast, sheet } from '../ui.js';
-import { FORMATS, printLabels, shareLabelImages } from '../labels.js';
+import { busy, toast } from '../ui.js';
+import { openLabels } from '../labels.js';
 import { h, today, addDays, mondayOf, fmtDay, fmtRange, fmtNum, fmtQty, isKey } from '../util.js';
 
 const DONE_KEY = 'planer.sessionDone';
@@ -60,6 +60,7 @@ export async function render(root, q, ctx) {
         <p class="small muted">Gotujesz na: ${s.dni.map(k => h(fmtDay(k))).join(', ')}</p>
         <div class="chips">${s.potrawy.map(p => `<a class="chip ${p.baza ? 'strong' : ''}" href="#/przepis?id=${encodeURIComponent(p.ID_Pot)}&back=1">${MODE_ICON[p.tryb] || ''} ${h(p.Nazwa)} ×${fmtNum(p.mnoznik, 2)}</a>`).join('')}</div>
         ${s.ostrzezenia.length ? `<div class="warnbox">${s.ostrzezenia.map(w => `<p>⚠️ ${h(w)}</p>`).join('')}</div>` : ''}
+        <a class="btn block cm-start" href="#/gotuj?w=${from}&s=${tab}">▶️ Tryb gotowania – krok po kroku</a>
         <div class="toolbar">
           <button class="btn ghost small" data-export="calendar">📅 Do Kalendarza</button>
           <button class="btn ghost small" data-export="todoist">✅ Do Todoist</button>
@@ -126,7 +127,7 @@ export async function render(root, q, ctx) {
       ${day.potrawy.map(p => `<div class="dish-block">
         <div class="row-between"><h4>${recipeLink(p.ID_Pot, p.Nazwa)} <span class="muted small">×${fmtNum(p.mnoznik, 2)}</span></h4>${p.hybryda ? '<span class="chip">🧩 finisz</span>' : ''}</div>
         <p class="small muted">${p.porcje.map(x => h(x.osoba) + ' ' + fmtNum(x.gramy) + ' g').join(' · ')}</p>
-        ${p.szkic ? '<p class="small warn-text">Przepis bez etapów – uzupełnij w edytorze.</p>' : ''}
+        ${p.szkic ? '<p class="small warn-text">Przepis bez etapów – uzupełnij w edytorze.</p>' : `<a class="btn ghost small" href="#/gotuj?w=${from}&s=9&d=${day.data}&id=${encodeURIComponent(p.ID_Pot)}">▶️ Gotuj krok po kroku</a>`}
         <ol class="checklist steps-list">${p.kroki.map((k, ki) => stepHtml({ data: day.data }, k, `fresh|${p.ID_Pot}|${ki}`, false)).join('')}</ol>
       </div>`).join('')}
     </article>`).join('');
@@ -213,30 +214,4 @@ export async function render(root, q, ctx) {
 
   const reload = () => live(`sessions:${from}`, 'sessions', { from }, draw);
   await reload();
-}
-
-function openLabels(items) {
-  const saved = localStorage.getItem('planer.labelFormat') || 'a4-70x37';
-  const s = sheet('Etykiety', `
-    <p class="small muted">${items.length} etykiet: osoba, danie, dzień, gramy, kcal, „zjeść do”, co dodać po odgrzaniu (smoothie: co dodać rano).</p>
-    <label class="form-row">Format
-      <select class="input" data-format>${Object.entries(FORMATS).map(([k, f]) => `<option value="${k}" ${k === saved ? 'selected' : ''}>${h(f.nazwa)}</option>`).join('')}</select>
-    </label>
-    <div class="actions-list">
-      <button class="btn" data-print>🖨️ Drukuj</button>
-      <button class="btn ghost" data-share>📲 Obrazy 50×30 do aplikacji drukarki</button>
-    </div>`);
-  s.el.addEventListener('click', async e => {
-    const fmt = s.el.querySelector('[data-format]').value;
-    localStorage.setItem('planer.labelFormat', fmt);
-    if (e.target.closest('[data-print]')) {
-      try { printLabels(items, fmt); } catch (err) { toast(err.message, 'error'); }
-    }
-    if (e.target.closest('[data-share]')) {
-      try {
-        const r = await shareLabelImages(items);
-        if (r === 'downloaded') toast('Pobrano obrazy etykiet', 'ok');
-      } catch (err) { if (err.name !== 'AbortError') toast(err.message, 'error'); }
-    }
-  });
 }
