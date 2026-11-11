@@ -3,7 +3,7 @@
  * Strategia dla plików aplikacji: najpierw sieć (zawsze świeża wersja), przy braku sieci – cache.
  * Żądania do API (inny origin) nie są tu obsługiwane – dane offline trzyma aplikacja w IndexedDB.
  */
-const VERSION = 'planer-v8';
+const VERSION = 'planer-v9';
 const SHELL = [
   './',
   'index.html',
@@ -18,6 +18,7 @@ const SHELL = [
   'js/substitutes.js',
   'js/timers.js',
   'js/diag.js',
+  'js/sessions.js',
   'js/views/cookmode.js',
   'js/views/editor.js',
   'js/util.js',

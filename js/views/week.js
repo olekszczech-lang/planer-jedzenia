@@ -5,11 +5,22 @@ import { S, potName, osobaName, gramsOf, sortEntries, mealsInUse, awayFor, isKid
 const VIEWS = [['dni', '📅 Dni'], ['tabela', '▦ Tabela'], ['osoba', '🙋 Osoba'], ['potrawy', '🍲 Potrawy']];
 import { pickDish, chooseAction, busy, toast, sheet } from '../ui.js';
 import { h, today, addDays, mondayOf, fmtDay, fmtRange, fmtNum, truthy, isKey } from '../util.js';
+import { shortDay, coverText } from '../sessions.js';
 
 export async function render(root, q, ctx) {
   const from = mondayOf(isKey(q.w) ? q.w : today());
   const to = addDays(from, 6);
   let rows = [];
+  let lastData = null;
+  let cal = null; // sesje gotowania obejmujące ten tydzień
+  const sessOf = d => cal && cal.sesje.find(s => s.dni.includes(d));
+  const cookingOn = d => cal ? cal.sesje.filter(s => s.data === d) : [];
+  const sessChips = d => {
+    const s = sessOf(d);
+    const cook = cookingOn(d);
+    return (cook.length ? cook.map(c => `<a class="chip strong" href="#/gotowanie?w=${mondayOf(c.od)}&sid=${encodeURIComponent(c.id)}">🔪 gotujesz na ${h(coverText(c.dni))}</a>`).join('') : '') +
+      (s ? `<span class="chip">🍳 z sesji ${h(shortDay(s.data))}</span>` : (cal ? '<span class="chip">🥚 na świeżo</span>' : ''));
+  };
   let view = localStorage.getItem('planer.weekView') || 'dni';
   let person = localStorage.getItem('planer.weekPerson') || S.idx.aktywne[0];
   if (!S.idx.osoba[person]) person = S.idx.aktywne[0];
@@ -30,7 +41,8 @@ export async function render(root, q, ctx) {
     <section data-days><div class="loading">Ładowanie planu…</div></section>`;
 
   const draw = data => {
-    if (!ctx.alive()) return;
+    if (!ctx.alive() || !data) return;
+    lastData = data;
     rows = sortEntries(data);
     const days = Array.from({ length: 7 }, (_, i) => addDays(from, i));
     const box = root.querySelector('[data-days]');
@@ -40,6 +52,7 @@ export async function render(root, q, ctx) {
     box.innerHTML = days.map(d => `
       <article class="card day ${d === today() ? 'is-today' : ''}">
         <a class="day-title" href="#/dzis?d=${d}">${h(fmtDay(d, true))}</a>
+        <div class="chips day-sess">${sessChips(d)}</div>
         ${mealsInUse().map(typ => {
           const es = rows.filter(r => r.Data === d && r.Typ_posilku === typ);
           const dishes = [...new Set(es.map(e => e.ID_Pot))];
@@ -81,7 +94,11 @@ export async function render(root, q, ctx) {
     }).join('') || '<div class="empty"><p>Brak zaplanowanych posiłków.</p></div>';
   };
 
-  const reload = async () => { await live(`plan:${from}:${to}`, 'plan', { from, to }, draw); };
+  const reload = async () => {
+    const calP = live(`scal:${from}`, 'sessionCalendar', { from, to }, c => { cal = c; draw(lastData); }).catch(() => null);
+    await live(`plan:${from}:${to}`, 'plan', { from, to }, draw);
+    await calP;
+  };
 
   root.onclick = async ev => {
     const vb = ev.target.closest('[data-view]');
@@ -114,18 +131,45 @@ export async function render(root, q, ctx) {
       return;
     }
 
-    const auto = ev.target.closest('[data-autofill]');
-    if (auto) {
-      await busy(auto, async () => {
-        const created = await call('autoFill', { from, to });
-        toast(created.length ? `Dodano ${created.length} wpisów` : 'Wszystkie posiłki są już zaplanowane');
-        await reload();
-      });
-      return;
-    }
+    if (ev.target.closest('[data-autofill]')) { openAutofill(); return; }
 
     if (ev.target.closest('[data-templates]')) openTemplates();
   };
+
+  /** „Uzupełnij puste” z parametrami: zakres dni, posiłki, ile różnych dań w sesji, nadpisywanie. */
+  function openAutofill() {
+    const t = today();
+    const start = t > from && t <= to ? t : from; // w bieżącym tygodniu – od dziś, bez dni, które minęły
+    const u = S.boot.sesjeUst || { warianty: 2 };
+    const meals = mealsInUse();
+    const s = sheet('Uzupełnij plan', `
+      <form class="form" data-af>
+        <div class="grid2">
+          <label>Od<input class="input" type="date" name="od" value="${start}" required></label>
+          <label>Do<input class="input" type="date" name="do" value="${to}" required></label>
+        </div>
+        <fieldset><legend>Posiłki</legend>${meals.map(m => `<label class="check"><input type="checkbox" name="typ" value="${h(m)}" checked> ${h(m)}</label>`).join(' ')}</fieldset>
+        <label>Różnych dań na ten sam posiłek w sesji
+          <select class="input" name="warianty">${[1, 2, 3].map(v => `<option value="${v}" ${Number(u.warianty) === v ? 'selected' : ''}>${v}${v === 1 ? ' – to samo przez całą sesję' : v === 2 ? ' – na zmianę A, B' : ''}</option>`).join('')}</select></label>
+        <label class="check"><input type="checkbox" name="nadpisz"> Zastąp też zaplanowane posiłki w tym zakresie</label>
+        <p class="small muted">Dania dobierane są pod sesje gotowania${cal && cal.sesje.length ? ` (${cal.sesje.map(x => `${h(shortDay(x.data))} → ${h(coverText(x.dni))}`).join(', ')})` : ''}: w jednej sesji ten sam posiłek ma najwyżej tyle różnych dań, ile wybierzesz. Uwzględnia profile, miejsca (lunchbox) i oceny.</p>
+        <button class="btn">Uzupełnij</button>
+      </form>`);
+    s.el.querySelector('[data-af]').addEventListener('submit', async e => {
+      e.preventDefault();
+      const f = e.target.elements;
+      const typy = [...e.target.querySelectorAll('[name=typ]:checked')].map(x => x.value);
+      if (!typy.length) { toast('Zaznacz przynajmniej jeden posiłek', 'error'); return; }
+      if (f.do.value < f.od.value) { toast('Koniec zakresu jest przed początkiem', 'error'); return; }
+      if (f.nadpisz.checked && !confirm(`Zastąpić zaplanowane posiłki (${typy.join(', ')}) od ${fmtDay(f.od.value)} do ${fmtDay(f.do.value)}?`)) return;
+      await busy(e.target.querySelector('button'), async () => {
+        const created = await call('autoFill', { from: f.od.value, to: f.do.value, typy, warianty: Number(f.warianty.value), nadpisz: f.nadpisz.checked });
+        toast(created.length ? `Dodano ${created.length} wpisów` : 'Wszystkie posiłki w tym zakresie są już zaplanowane');
+        s.close();
+        await reload();
+      });
+    });
+  }
 
   function openTemplates() {
     const list = S.boot.szablony || [];

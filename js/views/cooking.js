@@ -1,10 +1,11 @@
-// Gotowanie: sesje (zakładki Niedziela / Środa / Na świeżo) prowadzone jak w kuchni zawodowej:
+// Gotowanie: sesje (zakładki wg harmonogramu z Ustawień + sesje dodatkowe, Na świeżo) prowadzone jak w kuchni zawodowej:
 // mise en place ze wszystkich dań → marynaty → dania (kroki z ilościami) → bazy → składanie → chłodzenie →
 // porcjowanie per danie (waga rzeczywista → podział, etykiety, rejestr zamrażarki).
 import { live, call } from '../api.js';
 import { MODE_ICON } from '../state.js';
 import { busy, toast } from '../ui.js';
 import { openLabels } from '../labels.js';
+import { editSession, coverText, shortDay } from '../sessions.js';
 import { h, today, addDays, mondayOf, fmtDay, fmtRange, fmtNum, fmtQty, isKey } from '../util.js';
 
 const DONE_KEY = 'planer.sessionDone';
@@ -45,6 +46,7 @@ export async function render(root, q, ctx) {
       <a class="iconbtn" href="#/gotowanie?w=${addDays(from, 7)}" aria-label="Następny tydzień">›</a>
     </div>
     <div class="tabs" data-tabs></div>
+    <div class="toolbar"><button class="btn ghost small" data-newsess>➕ Gotuj w innym terminie</button><a class="small" href="#/ustawienia?k=gotowanie">⚙️ Dni gotowania</a></div>
     <section data-list><div class="loading">Układam plan sesji…</div></section>`;
 
   const chk = (id, inner) => `<label class="${done[id] ? 'done' : ''}"><input type="checkbox" data-step="${h(id)}" ${done[id] ? 'checked' : ''}><span>${inner}</span></label>`;
@@ -63,26 +65,29 @@ export async function render(root, q, ctx) {
 
   const drawTabs = () => {
     const t = root.querySelector('[data-tabs]');
-    const labels = data.sesje.map((s, i) => `<button class="tab ${tab === i ? 'on' : ''}" data-tab="${i}">🍳 ${h(s.nazwa)}<small>${h(fmtDay(s.data))} · ${s.potrawy.length} ${plural(s.potrawy.length, 'danie', 'dania', 'dań')}</small></button>`);
+    const labels = data.sesje.map((s, i) => `<button class="tab ${tab === i ? 'on' : ''}" data-tab="${i}">🍳 ${h(s.nazwa)}${s.staly === false ? ' ✎' : ''}<small>${h(shortDay(s.data))} → ${h(coverText(s.dni))} · ${s.potrawy.length} ${plural(s.potrawy.length, 'danie', 'dania', 'dań')}</small></button>`);
     labels.push(`<button class="tab ${tab === 9 ? 'on' : ''}" data-tab="9">🥚 Na świeżo<small>${data.swieze.length} dni</small></button>`);
     t.innerHTML = labels.join('');
   };
 
   const drawSession = s => {
-    if (!s.potrawy.length) return `<div class="empty"><p>W tej sesji nie ma nic do gotowania.</p><p><a class="btn" href="#/tydzien?w=${from}">Zaplanuj tydzień</a></p></div>`;
+    if (!s) return `<div class="empty"><p>W tym tygodniu nie ma sesji gotowania.</p><p class="small muted">Dni gotowania ustawisz w Ustawieniach, a jednorazową sesję dodasz przyciskiem „Gotuj w innym terminie”.</p></div>`;
+    if (!s.potrawy.length) return `<div class="empty"><p>W sesji ${h(s.nazwa)} (${h(shortDay(s.data))} → ${h(coverText(s.dni))}) nie ma nic do gotowania.</p><p><a class="btn" href="#/tydzien?w=${from}">Zaplanuj tydzień</a> <button class="btn ghost" data-editsess>📅 Zmień termin / dni</button></p></div>`;
     const frozen = s.pakowanie.filter(p => p.akcja === 'zamrażarka').length;
     let n = 0;
     const phase = (title, body, open) => `<details class="phase" ${open ? 'open' : ''}><summary>${++n}. ${title}</summary>${body}</details>`;
     return `
       <article class="card session">
         <div class="row-between"><h3>${h(s.nazwa)} · ${h(fmtDay(s.data, true))}</h3><span class="chip strong">≈ ${fmtNum(s.czas_min / 60, 1)} h</span></div>
-        <p class="small muted">Gotujesz na: ${s.dni.map(k => h(fmtDay(k))).join(', ')}</p>
+        <p class="small muted">Gotujesz na: ${s.dni.map(k => h(fmtDay(k))).join(', ')}${s.staly === false ? ' · <b>sesja dodatkowa</b>' : ''}</p>
         <div class="chips">${s.potrawy.map(p => `<a class="chip ${p.baza ? 'strong' : ''}" href="#/przepis?id=${encodeURIComponent(p.ID_Pot)}&back=1">${MODE_ICON[p.tryb] || ''} ${h(p.Nazwa)} ×${fmtNum(p.mnoznik, 2)}</a>`).join('')}</div>
         ${s.ostrzezenia.length ? `<div class="warnbox">${s.ostrzezenia.map(w => `<p>⚠️ ${h(w)}</p>`).join('')}</div>` : ''}
         <a class="btn block cm-start" href="#/gotuj?w=${from}&s=${tab}">▶️ Tryb gotowania – krok po kroku</a>
         <div class="toolbar">
           <button class="btn ghost small" data-export="calendar">📅 Do Kalendarza</button>
           <button class="btn ghost small" data-export="todoist">✅ Do Todoist</button>
+          <button class="btn ghost small" data-editsess>📅 Zmień termin / dni</button>
+          <a class="btn ghost small" href="#/zakupy?t=lista&od=${s.dni[0]}&do=${s.dni[s.dni.length - 1]}">🛒 Zakupy na tę sesję</a>
         </div>
       </article>
 
@@ -161,6 +166,11 @@ export async function render(root, q, ctx) {
       const idx = d.sesje.findIndex(s => s.data >= t && s.potrawy.length);
       tab = idx >= 0 ? idx : Math.max(0, d.sesje.map(s => !!s.potrawy.length).lastIndexOf(true));
     }
+    if (q.sid) {
+      const i = d.sesje.findIndex(s => s.id === q.sid);
+      if (i >= 0) tab = i;
+    }
+    if (tab !== 9 && !d.sesje[tab]) tab = d.sesje.length ? 0 : 9;
     drawTabs();
     const box = root.querySelector('[data-list]');
     box.innerHTML = tab === 9 ? drawFresh() : drawSession(d.sesje[tab] || d.sesje[0]);
@@ -204,6 +214,12 @@ export async function render(root, q, ctx) {
   };
 
   root.onclick = async ev => {
+    const es = ev.target.closest('[data-newsess], [data-editsess]');
+    if (es) {
+      const s = es.matches('[data-editsess]') && data ? session() : null;
+      editSession(s, data ? data.sesje : [], (id, od) => ctx.go(`#/gotowanie?w=${mondayOf(od)}${id ? '&sid=' + encodeURIComponent(id) : ''}`));
+      return;
+    }
     const t = ev.target.closest('[data-tab]');
     if (t) {
       tab = Number(t.dataset.tab);

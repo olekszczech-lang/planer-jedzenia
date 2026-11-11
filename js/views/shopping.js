@@ -3,7 +3,8 @@
 import { live, call, enqueue, patchCache, writeCache } from '../api.js';
 import { S, osobaName } from '../state.js';
 import { busy, toast, sheet } from '../ui.js';
-import { h, today, addDays, mondayOf, fmtRange, fmtQty, fmtNum, fmtDay, truthy, isKey, norm, num, key } from '../util.js';
+import { h, today, addDays, mondayOf, fmtRange, fmtQty, fmtNum, fmtDay, truthy, isKey, norm, num, key, parseKey } from '../util.js';
+import { shortDay, coverText, daysWord } from '../sessions.js';
 
 const HIDE_KEY = 'planer.hideBought';
 
@@ -17,7 +18,7 @@ export async function render(root, q, ctx) {
   const tab = q.t || 'lista';
   root.innerHTML = `
     <div class="tabs">
-      <a class="tab ${tab === 'lista' ? 'on' : ''}" href="#/zakupy?t=lista${q.w ? '&w=' + q.w : ''}">🛒 Lista</a>
+      <a class="tab ${tab === 'lista' ? 'on' : ''}" href="#/zakupy?t=lista${q.od ? `&od=${h(q.od)}&do=${h(q.do || '')}` : (q.w ? '&w=' + h(q.w) : '')}">🛒 Lista</a>
       <a class="tab ${tab === 'zapasy' ? 'on' : ''}" href="#/zakupy?t=zapasy">🥫 Zapasy</a>
       <a class="tab ${tab === 'zamrazarka' ? 'on' : ''}" href="#/zakupy?t=zamrazarka">❄️ Zamrażarka</a>
     </div>
@@ -28,19 +29,32 @@ export async function render(root, q, ctx) {
   return renderList(body, q, ctx);
 }
 
+const listHash = (od, d2) => `#/zakupy?t=lista&od=${od}&do=${d2}`;
+const daysIn = (a, b) => Math.round((parseKey(b) - parseKey(a)) / 864e5) + 1;
+
 async function renderList(root, q, ctx) {
-  const from = mondayOf(isKey(q.w) ? q.w : today());
-  const to = addDays(from, 6);
+  // okres listy: od–do z adresu (tydzień, sesja gotowania albo dowolny zakres); domyślnie bieżący tydzień
+  let from = isKey(q.od) ? q.od : mondayOf(isKey(q.w) ? q.w : today());
+  let to = isKey(q.od) && isKey(q.do) && q.do >= q.od ? q.do : addDays(from, 6);
+  if (daysIn(from, to) > 31) to = addDays(from, 30);
+  const n = daysIn(from, to);
+  const isWeek = n === 7 && from === mondayOf(from);
   const idListy = `L${from}_${to}`;
   const cacheKey = 'shop:' + idListy;
   let data = { items: [] };
   let hide = localStorage.getItem(HIDE_KEY) === '1';
+  let cal = null;
 
   root.innerHTML = `
     <div class="datenav">
-      <a class="iconbtn" href="#/zakupy?t=lista&w=${addDays(from, -7)}" aria-label="Poprzedni tydzień">‹</a>
-      <div class="datenav-title"><strong>${h(fmtRange(from, to))}</strong><span class="small muted" data-progress></span></div>
-      <a class="iconbtn" href="#/zakupy?t=lista&w=${addDays(from, 7)}" aria-label="Następny tydzień">›</a>
+      <a class="iconbtn" href="${listHash(addDays(from, -n), addDays(to, -n))}" aria-label="Poprzedni okres">‹</a>
+      <div class="datenav-title"><strong>${h(fmtRange(from, to))}</strong><span class="small muted" data-progress>${isWeek ? 'tydzień' : daysWord(n)}</span></div>
+      <a class="iconbtn" href="${listHash(addDays(from, n), addDays(to, n))}" aria-label="Następny okres">›</a>
+    </div>
+    <div class="chips filter" data-periods>
+      <a class="chip ${isWeek ? 'on' : ''}" href="${listHash(mondayOf(from), addDays(mondayOf(from), 6))}">📅 Tydzień</a>
+      <span class="small muted">sesje…</span>
+      <button class="chip" data-range>✎ Inny okres</button>
     </div>
     <div class="toolbar">
       <button class="btn" data-build>Generuj z planu</button>
@@ -48,16 +62,29 @@ async function renderList(root, q, ctx) {
     </div>
     <section data-list><div class="loading">Ładowanie listy…</div></section>`;
 
+  // skróty: lista na sesję gotowania (dni, na które gotujesz) – sesje z tego i następnego tygodnia
+  const periods = c => {
+    if (!ctx.alive() || !c) return;
+    cal = c;
+    const el = root.querySelector('[data-periods]');
+    const sess = c.sesje.filter(s => s.do >= addDays(today(), -7));
+    el.innerHTML = `<a class="chip ${isWeek ? 'on' : ''}" href="${listHash(mondayOf(from), addDays(mondayOf(from), 6))}">📅 Tydzień</a>` +
+      sess.map(s => `<a class="chip ${s.od === from && s.do === to ? 'on' : ''}" href="${listHash(s.od, s.do)}">🍳 ${h(shortDay(s.data))} → ${h(coverText(s.dni))}</a>`).join('') +
+      `<button class="chip ${!isWeek && !sess.some(s => s.od === from && s.do === to) ? 'on' : ''}" data-range>✎ Inny okres</button>`;
+  };
+  const wk = mondayOf(from);
+  live(`scal:${wk}:14`, 'sessionCalendar', { from: wk, to: addDays(wk, 13) }, periods).catch(() => {});
+
   const draw = d => {
     if (!ctx.alive()) return;
     data = d;
     const items = d.items || [];
     const toBuy = items.filter(i => num(i.Ilosc) > 0);
     const bought = toBuy.filter(i => truthy(i.Kupione)).length;
-    root.querySelector('[data-progress]').textContent = items.length ? `${bought} / ${toBuy.length} kupione` : '';
+    root.querySelector('[data-progress]').textContent = (isWeek ? 'tydzień' : daysWord(n)) + (items.length ? ` · ${bought} / ${toBuy.length} kupione` : '');
     const box = root.querySelector('[data-list]');
     if (!items.length) {
-      box.innerHTML = `<div class="empty"><p>Lista na ten tydzień jest pusta.</p>
+      box.innerHTML = `<div class="empty"><p>Lista na ten okres jest pusta.</p>
         <p class="muted small">„Generuj z planu” policzy składniki ze wszystkich zaplanowanych posiłków, odejmie zapasy i zaokrągli do opakowań ze sklepu.</p></div>`;
       return;
     }
@@ -103,6 +130,26 @@ async function renderList(root, q, ctx) {
   };
 
   root.onclick = async ev => {
+    if (ev.target.closest('[data-range]')) {
+      const s = sheet('Lista zakupów na okres', `
+        <form class="form" data-rng>
+          <div class="grid2">
+            <label>Od<input class="input" type="date" name="od" value="${from}" required></label>
+            <label>Do<input class="input" type="date" name="do" value="${to}" required></label>
+          </div>
+          ${cal && cal.sesje.length ? `<p class="small muted">Sesje gotowania: ${cal.sesje.map(x => `${h(shortDay(x.data))} → ${h(coverText(x.dni))}`).join(' · ')}</p>` : ''}
+          <p class="small muted">Lista policzy składniki ze wszystkich posiłków zaplanowanych w tych dniach (najwyżej 31 dni).</p>
+          <button class="btn">Pokaż listę</button>
+        </form>`);
+      s.el.querySelector('[data-rng]').addEventListener('submit', e => {
+        e.preventDefault();
+        const f = e.target.elements;
+        if (f.do.value < f.od.value) { toast('Koniec okresu jest przed początkiem', 'error'); return; }
+        s.close();
+        ctx.go(listHash(f.od.value, f.do.value));
+      });
+      return;
+    }
     const b = ev.target.closest('[data-build]');
     if (b) {
       await busy(b, async () => {
@@ -118,7 +165,7 @@ async function renderList(root, q, ctx) {
       const it = data.items.find(i => i.ID_Skl === have.dataset.have);
       const s = sheet(it.Nazwa, `
         <form class="form" data-st>
-          <p class="small muted">Potrzeba w tym tygodniu: ${h(fmtQty(it.Potrzeba || it.Ilosc, it.Jednostka))}. Ile masz w domu?</p>
+          <p class="small muted">Potrzeba w tym okresie:${h(fmtQty(it.Potrzeba || it.Ilosc, it.Jednostka))}. Ile masz w domu?</p>
           <label>Mam w zapasach (${h(it.Jednostka || 'g')})<input class="input" name="q" type="number" step="any" min="0" value="${h(it.zapas || '')}"></label>
           <button class="btn">Zapisz i przelicz listę</button>
         </form>`);

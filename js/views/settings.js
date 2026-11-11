@@ -4,6 +4,7 @@ import { S, ensureBoot } from '../state.js';
 import * as db from '../db.js';
 import { busy, toast } from '../ui.js';
 import { h, truthy, num, APP_VERSION } from '../util.js';
+import { DAY_SHORT, DAY_LONG, schedulePreview, daysWord } from '../sessions.js';
 
 const MEALS = ['Śniadanie', 'II śniadanie', 'Obiad', 'Podwieczorek', 'Przekąska', 'Kolacja'];
 const ACT = ['niska', 'umiarkowana', 'wysoka', 'bardzo wysoka'];
@@ -92,7 +93,36 @@ function readPerson(form) {
   return patch;
 }
 
-export async function render(root) {
+/** Karta „Gotowanie i planowanie”: dni sesji, godziny przypomnień, ile różnych dań na posiłek w sesji. */
+function cookingForm(u) {
+  return `<form class="card form" data-cooking id="gotowanie">
+      <h3>🍳 Gotowanie i planowanie</h3>
+      <p class="small muted">W które dni gotujesz hurtem? Każda sesja gotuje na dni do następnej sesji (włącznie z nią).
+        Np. niedziela + czwartek: w niedzielę na pn–czw, w czwartek na pt–nd.</p>
+      <div class="chips daypick">${DAY_SHORT.map((n, i) => `<label class="chip ${u.dni.includes(i + 1) ? 'on' : ''}"><input type="checkbox" name="dzien" value="${i + 1}" ${u.dni.includes(i + 1) ? 'checked' : ''}> ${n}</label>`).join('')}</div>
+      <div data-cookprev></div>
+      <label>Różnych dań na ten sam posiłek w jednej sesji
+        <select class="input" name="warianty">${[[1, '1 – to samo danie przez całą sesję (najmniej gotowania)'], [2, '2 – na zmianę: A, B, A…'], [3, '3 – więcej różnorodności']]
+          .map(([v, l]) => `<option value="${v}" ${Number(u.warianty) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <div class="toolbar"><button class="btn">Zapisz</button></div>
+      <p class="small muted">Jednorazowo (gotuję dziś, w tym tygodniu w czwartek zamiast w środę): Gotowanie → „Gotuj w innym terminie” albo „Zmień termin / dni”.
+        Po zmianie dni ułóż plan od nowa: Tydzień → „Uzupełnij puste” → „Zastąp też zaplanowane”.</p>
+    </form>`;
+}
+
+function cookPreview(form, godziny) {
+  const dni = [...form.querySelectorAll('[name=dzien]:checked')].map(x => Number(x.value));
+  form.querySelectorAll('[name=dzien]').forEach(x => x.closest('.chip').classList.toggle('on', x.checked));
+  const box = form.querySelector('[data-cookprev]');
+  const keep = {};
+  box.querySelectorAll('[data-godz]').forEach(i => { keep[i.dataset.godz] = i.value; });
+  box.innerHTML = !dni.length ? '<p class="small warn-text">Bez dni gotowania wszystkie dania będą „na świeżo” – sesje dodasz wtedy tylko jednorazowo.</p>'
+    : schedulePreview(dni).map(p => `<div class="cook-row"><b>${DAY_LONG[p.dzien - 1]}</b>
+        <input class="input" type="time" data-godz="${p.dzien}" value="${h(keep[p.dzien] || godziny[p.dzien] || (p.dzien >= 6 ? '11:00' : '17:30'))}" aria-label="Godzina sesji">
+        <span class="small">→ gotujesz na <b>${h(p.opis)}</b> (${daysWord(p.dni.length)})${p.dni.length > 4 ? ' <span class="muted">· część porcji do zamrażarki</span>' : ''}</span></div>`).join('');
+}
+
+export async function render(root, q = {}) {
   const s = getSettings();
   const st = await status();
   if (isConfigured() && !S.boot) { try { await ensureBoot(); } catch { /* offline / błędne połączenie */ } }
@@ -124,6 +154,8 @@ export async function render(root) {
       </form>
     </article>
 
+    ${cookingForm(S.boot.sesjeUst || { dni: [3, 7], godziny: { 3: '18:00', 7: '15:00' }, warianty: 2 })}
+
     <form class="card form" data-integr>
       <h3>Integracje</h3>
       <label>Token Todoist (Ustawienia Todoist → Integracje → Programiści)
@@ -154,6 +186,14 @@ export async function render(root) {
       <p class="small muted">„Wyczyść pamięć” usuwa dane zapisane w telefonie (bez niewysłanych zmian).</p>
     </article>
     <p class="app-version">Planer jedzenia · wersja aplikacji ${APP_VERSION}</p>`;
+
+  const cookForm = root.querySelector('[data-cooking]');
+  if (cookForm) {
+    const godz = (S.boot.sesjeUst || {}).godziny || {};
+    cookPreview(cookForm, godz);
+    cookForm.addEventListener('change', ev => { if (ev.target.name === 'dzien') cookPreview(cookForm, godz); });
+    if (q.k === 'gotowanie') setTimeout(() => cookForm.scrollIntoView({ block: 'start' }), 60);
+  }
 
   if (connected) {
     call('integrations').then(i => {
@@ -267,6 +307,16 @@ export async function render(root) {
           Posilki: kid ? 'Śniadanie,II śniadanie,Obiad,Podwieczorek,Kolacja' : 'Śniadanie,Obiad,Przekąska,Kolacja' } });
         toast(kid ? 'Dodano – uzupełnij wiek i zaznacz „Uwzględniaj w planie”' : 'Dodano osobę', 'ok');
         await rerender();
+      });
+    } else if (f.matches('[data-cooking]')) {
+      const dni = [...f.querySelectorAll('[name=dzien]:checked')].map(x => Number(x.value));
+      const godziny = {};
+      f.querySelectorAll('[data-godz]').forEach(i => { godziny[i.dataset.godz] = i.value; });
+      await busy(btn, async () => {
+        const u = await call('saveCookingSettings', { dni, godziny, warianty: Number(f.elements.warianty.value) });
+        S.boot.sesjeUst = u;
+        await ensureBoot(true);
+        toast(u.dni.length ? 'Zapisano dni gotowania – sesje i plan pracy przeliczą się same' : 'Zapisano: bez stałych sesji', 'ok', 4500);
       });
     } else if (f.matches('[data-integr]')) {
       await busy(btn, async () => {

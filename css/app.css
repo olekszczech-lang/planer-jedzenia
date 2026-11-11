@@ -467,3 +467,15 @@ body.cookmode main { padding-top: calc(8px + env(safe-area-inset-top)); }
 .mm-inputs label { display: flex; flex-direction: column; gap: 2px; color: var(--muted); }
 .mm-inputs .input { min-height: 38px; padding: 0 8px; }
 .ok-text { color: var(--accent); }
+
+/* ── v9: harmonogram sesji, okresy list ──────────────── */
+.form .grid2 { display: grid; grid-template-columns: 1fr 1fr; column-gap: 10px; }
+.form .grid2 label { min-width: 0; }
+.daypick .chip { cursor: pointer; min-height: 36px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; font-size: .9rem; }
+.daypick .chip input { position: absolute; opacity: 0; pointer-events: none; }
+.form .daypick label.chip { margin: 0; flex-direction: row; font-weight: 600; }
+.cook-row { display: grid; grid-template-columns: 6.5rem 6.5rem 1fr; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--border); }
+.cook-row .input { min-height: 36px; padding: 0 6px; }
+@media (max-width: 420px) { .cook-row { grid-template-columns: 1fr auto; } .cook-row > span { grid-column: 1 / -1; } }
+.day-sess { margin: 2px 0 4px; }
+.day-sess .chip { font-size: .72rem; padding: 1px 8px; text-decoration: none; }

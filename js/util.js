@@ -1,6 +1,6 @@
 // Daty jako klucze "yyyy-mm-dd" w czasie lokalnym, formatowanie liczb, escapowanie HTML.
 
-export const APP_VERSION = 'v8';
+export const APP_VERSION = 'v9';
 
 export const MEALS = ['Śniadanie', 'Obiad', 'Kolacja', 'Przekąska'];
 
