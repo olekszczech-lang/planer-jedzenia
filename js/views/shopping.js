@@ -1,9 +1,9 @@
 // Zakupy: lista w opakowaniach sklepowych (sztuki, kartony, puszki) z resztkami i pomysłami na nie,
 // zapasy (spiżarnia / lodówka / zamrażarka) i rejestr gotowych porcji w zamrażarce.
 import { live, call, enqueue, patchCache, writeCache } from '../api.js';
-import { S, osobaName } from '../state.js';
+import { S, osobaName, mealsInUse } from '../state.js';
 import { busy, toast, sheet } from '../ui.js';
-import { h, today, addDays, mondayOf, fmtRange, fmtQty, fmtNum, fmtDay, truthy, isKey, norm, num, key, parseKey } from '../util.js';
+import { h, today, addDays, mondayOf, fmtRange, fmtQty, fmtNum, fmtDay, truthy, isKey, norm, num, key, parseKey, dueText } from '../util.js';
 import { shortDay, coverText, daysWord } from '../sessions.js';
 
 const HIDE_KEY = 'planer.hideBought';
@@ -221,12 +221,14 @@ async function renderList(root, q, ctx) {
         <form class="form" data-st>
           <p class="small muted">Potrzeba w tym okresie:${h(fmtQty(it.Potrzeba || it.Ilosc, it.Jednostka))}. Ile masz w domu?</p>
           <label>Mam w zapasach (${h(it.Jednostka || 'g')})<input class="input" name="q" type="number" step="any" min="0" value="${h(it.zapas || '')}"></label>
+          <label>Ważne do (opcjonalnie)<input class="input" name="dw" type="date"></label>
           <button class="btn">Zapisz i przelicz listę</button>
         </form>`);
       s.el.querySelector('[data-st]').addEventListener('submit', async e => {
         e.preventDefault();
         await busy(e.target.querySelector('button'), async () => {
-          await call('setStock', { idSkl: it.ID_Skl, ilosc: num(e.target.elements.q.value), jednostka: it.Jednostka });
+          await call('setStock', { idSkl: it.ID_Skl, ilosc: num(e.target.elements.q.value), jednostka: it.Jednostka,
+            ...(e.target.elements.dw.value ? { dataWaznosci: e.target.elements.dw.value } : {}) });
           const d = await call('buildShopping', { from, to });
           await writeCache(cacheKey, d);
           s.close();
@@ -242,7 +244,7 @@ async function renderList(root, q, ctx) {
         const r = await call('unpack', { idListy });
         data.rozpakowana = true;
         draw(data);
-        toast(r.dodano.length ? 'Do zapasów: ' + r.dodano.map(x => `${x.Nazwa} ${fmtQty(x.Ilosc, 'g')}`).join(', ') : 'Brak nadwyżek do zapisania', 'ok', 6000);
+        toast(r.dodano.length ? 'Do zapasów: ' + r.dodano.map(x => `${x.Nazwa} ${fmtQty(x.Ilosc, 'g')}${x.Data_waznosci ? ' (' + x.Miejsce + ', zużyj ' + dueText(Math.round((parseKey(x.Data_waznosci) - parseKey(today())) / 864e5), x.Data_waznosci) + ')' : ''}`).join(', ') : 'Brak nadwyżek do zapisania', 'ok', 7000);
       });
     }
   };
@@ -250,26 +252,84 @@ async function renderList(root, q, ctx) {
   await live(cacheKey, 'shopping', { idListy }, draw);
 }
 
+const dueChip = r => {
+  const t = dueText(r.dni, r.Data_waznosci);
+  if (!t) return '';
+  const cls = r.dni <= 1 ? 'warn' : r.dni <= 3 ? 'soon' : 'muted-chip';
+  return ` <span class="chip ${cls} due">${r.dni <= 3 ? '⏰ ' : ''}${h(t)}</span>`;
+};
+
 async function renderStock(root, ctx) {
   root.innerHTML = '<div class="loading">Ładowanie zapasów…</div>';
-  const draw = rows => {
+  let rows = [];
+  let ideas = null;
+  const ideasHtml = () => {
+    if (!rows.length) return '';
+    if (!ideas) return '<article class="card"><h3>💡 Co ugotować z zapasów</h3><p class="small muted">Szukam przepisów…</p></article>';
+    if (!ideas.length) return '<article class="card"><h3>💡 Co ugotować z zapasów</h3><p class="small muted">Żaden przepis nie korzysta z tych zapasów w większej ilości.</p></article>';
+    return `<article class="card ideas"><h3>💡 Co ugotować z zapasów</h3>
+      <p class="small muted">Najpierw te, które zużyją kończące się produkty. „Uzupełnij puste” w Tygodniu też je wybiera.</p>
+      ${ideas.map((x, i) => `<div class="idea">
+        <div class="row-between"><a href="#/przepis?id=${encodeURIComponent(x.ID_Pot)}&back=1"><b>${h(x.Nazwa)}</b></a>
+          <button class="btn ghost small" data-plan="${i}">📅 Zaplanuj</button></div>
+        <p class="small">z zapasów: ${x.uzywa.map(u => `${h(u.Nazwa)}${u.dni !== null && u.dni <= 3 ? ' ⏰' : ''}`).join(', ')}
+          ${x.brakuje.length ? `<br><span class="muted">dokupić: ${x.brakuje.map(h).join(', ')}</span>` : ''}</p>
+      </div>`).join('')}</article>`;
+  };
+  const draw = () => {
     if (!ctx.alive()) return;
     const places = ['lodówka', 'spiżarnia', 'zamrażarka'];
+    const soon = rows.filter(r => r.dni !== null && r.dni !== undefined && r.dni <= 3).sort((a, b) => a.dni - b.dni);
     root.innerHTML = `<div class="toolbar"><button class="btn small" data-add>+ Dodaj produkt</button></div>` +
+      (soon.length ? `<article class="card soon-card"><h3>⏰ Zużyj najpierw</h3>
+        ${soon.map(r => `<div class="shop-row st"><span class="name">${h(r.Nazwa)}${dueChip(r)}<br><span class="small muted">${h(r.Miejsce || '')}</span></span>
+          <span class="qty">${h(fmtQty(r.Ilosc, r.Jednostka))}</span><button class="iconbtn small" data-edit="${h(r.ID_Skl)}" aria-label="Zmień">✎</button></div>`).join('')}
+      </article>` : '') +
+      ideasHtml() +
       (rows.length ? places.map(pl => {
         const list = rows.filter(r => (r.Miejsce || 'spiżarnia') === pl);
         return !list.length ? '' : `<article class="card"><h3>${pl === 'lodówka' ? '🧊' : pl === 'zamrażarka' ? '❄️' : '🥫'} ${h(pl)}</h3>
-          ${list.map(r => `<div class="shop-row"><span class="name">${h(r.Nazwa)}</span><span class="qty">${h(fmtQty(r.Ilosc, r.Jednostka))}</span>
+          ${list.map(r => `<div class="shop-row st"><span class="name">${h(r.Nazwa)}${dueChip(r)}</span><span class="qty">${h(fmtQty(r.Ilosc, r.Jednostka))}</span>
             <button class="iconbtn small" data-edit="${h(r.ID_Skl)}" aria-label="Zmień">✎</button></div>`).join('')}</article>`;
-      }).join('') : '<div class="empty"><p>Brak zapisanych zapasów.</p><p class="small muted">Dodawaj z listy zakupów („⋯ → mam w domu”) albo „Rozpakuj zakupy” po zakupach – nadwyżki z opakowań trafią tutaj i lista zakupów będzie je odejmować.</p></div>');
-    root.onclick = ev => {
-      const e = ev.target.closest('[data-edit]');
-      if (e) { editStock(rows.find(r => r.ID_Skl === e.dataset.edit), reload); return; }
-      if (ev.target.closest('[data-add]')) editStock(null, reload);
-    };
+      }).join('') : '<div class="empty"><p>Brak zapisanych zapasów.</p><p class="small muted">Dodawaj z listy zakupów („⋯ → mam w domu”) albo „Rozpakuj zakupy” po zakupach – reszty z otwartych opakowań trafią tutaj z terminem, lista zakupów będzie je odejmować, a „Uzupełnij puste” zaplanuje dania, które je zużyją.</p></div>');
   };
-  const reload = () => live('stock', 'stock', {}, draw);
+  root.onclick = ev => {
+    const e = ev.target.closest('[data-edit]');
+    if (e) { editStock(rows.find(r => r.ID_Skl === e.dataset.edit), reload); return; }
+    if (ev.target.closest('[data-add]')) { editStock(null, reload); return; }
+    const p = ev.target.closest('[data-plan]');
+    if (p && ideas) planIdea(ideas[Number(p.dataset.plan)]);
+  };
+  const loadIdeas = () => live('pidea', 'pantryIdeas', {}, d => { ideas = d.pomysly || []; draw(); }).catch(() => { ideas = []; draw(); });
+  const reload = async () => {
+    await live('stock', 'stock', {}, r => { rows = r; draw(); });
+    if (rows.length) await loadIdeas(); else { ideas = []; draw(); }
+  };
   await reload();
+}
+
+/** „Zaplanuj” z pomysłów: dzień + posiłek → setMeals (zastępuje to, co jest w tym posiłku). */
+function planIdea(x) {
+  const meals = mealsInUse().filter(m => !x.typy.length || x.typy.includes(m));
+  const list = meals.length ? meals : mealsInUse();
+  const s = sheet(x.Nazwa, `
+    <form class="form" data-pl>
+      <div class="grid2">
+        <label>Dzień<input class="input" type="date" name="d" value="${addDays(today(), 1)}" required></label>
+        <label>Posiłek<select class="input" name="t">${list.map(m => `<option>${h(m)}</option>`).join('')}</select></label>
+      </div>
+      <p class="small muted">Zastąpi to, co jest już zaplanowane na ten posiłek (dla osób, które go jedzą).</p>
+      <button class="btn">Dodaj do planu</button>
+    </form>`);
+  s.el.querySelector('[data-pl]').addEventListener('submit', async e => {
+    e.preventDefault();
+    const f = e.target.elements;
+    await busy(e.target.querySelector('button'), async () => {
+      await call('setMeals', { items: [{ data: f.d.value, typ: f.t.value, idPot: x.ID_Pot }] });
+      s.close();
+      toast(`Zaplanowano: ${x.Nazwa} – ${fmtDay(f.d.value)}, ${f.t.value.toLowerCase()}`, 'ok', 4500);
+    });
+  });
 }
 
 function editStock(row, reload) {
@@ -279,16 +339,23 @@ function editStock(row, reload) {
         <datalist id="skl-all">${Object.values(S.idx.skl).map(x => `<option value="${h(x.Nazwa)}">`).join('')}</datalist>`}
       <label>Ilość (g / szt)<input class="input" name="q" type="number" step="any" min="0" value="${h(row ? row.Ilosc : '')}" required></label>
       <label>Gdzie<select class="input" name="m">${['lodówka', 'spiżarnia', 'zamrażarka'].map(x => `<option ${row && row.Miejsce === x ? 'selected' : ''}>${x}</option>`).join('')}</select></label>
-      <p class="small muted">Ilość 0 usuwa produkt z zapasów.</p>
+      <label>Ważne do<input class="input" name="dw" type="date" value="${h(row && row.Data_waznosci ? row.Data_waznosci : '')}"></label>
+      <div class="chips">${[[1, 'jutro'], [3, '+3 dni'], [5, '+5 dni'], [14, '+2 tyg.']].map(([n, l]) => `<button type="button" class="chip" data-due="${n}">${l}</button>`).join('')}
+        <button type="button" class="chip" data-due="">bez terminu</button></div>
+      <p class="small muted">Ilość 0 usuwa produkt z zapasów. Termin podpowie, co zużyć najpierw – w zapasach, na ekranie Dziś i przy planowaniu.</p>
       <button class="btn">Zapisz</button>
     </form>`);
+  s.el.addEventListener('click', ev => {
+    const c = ev.target.closest('[data-due]');
+    if (c) s.el.querySelector('[name=dw]').value = c.dataset.due === '' ? '' : addDays(today(), Number(c.dataset.due));
+  });
   s.el.querySelector('[data-f]').addEventListener('submit', async e => {
     e.preventDefault();
     const f = e.target.elements;
     const skl = row ? S.idx.skl[row.ID_Skl] : Object.values(S.idx.skl).find(x => norm(x.Nazwa) === norm(f.n.value));
     if (!skl) { toast('Nie ma takiego produktu w bazie składników', 'error'); return; }
     await busy(e.target.querySelector('button'), async () => {
-      await call('setStock', { idSkl: skl.ID_Skl, ilosc: num(f.q.value), miejsce: f.m.value, jednostka: row ? row.Jednostka : (skl.Jednostka || 'g') });
+      await call('setStock', { idSkl: skl.ID_Skl, ilosc: num(f.q.value), miejsce: f.m.value, jednostka: row ? row.Jednostka : (skl.Jednostka || 'g'), dataWaznosci: f.dw.value });
       s.close();
       await reload();
     });

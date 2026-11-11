@@ -185,7 +185,7 @@ export async function render(root, q, ctx) {
         <label>Różnych dań na ten sam posiłek w sesji
           <select class="input" name="warianty">${[1, 2, 3].map(v => `<option value="${v}" ${Number(u.warianty) === v ? 'selected' : ''}>${v}${v === 1 ? ' – to samo przez całą sesję' : v === 2 ? ' – na zmianę A, B' : ''}</option>`).join('')}</select></label>
         <label class="check"><input type="checkbox" name="nadpisz"> Zastąp też zaplanowane posiłki w tym zakresie</label>
-        <p class="small muted">Dania dobierane są pod sesje gotowania${cal && cal.sesje.length ? ` (${cal.sesje.map(x => `${h(shortDay(x.data))} → ${h(coverText(x.dni))}`).join(', ')})` : ''}: w jednej sesji ten sam posiłek ma najwyżej tyle różnych dań, ile wybierzesz. Uwzględnia profile, miejsca (lunchbox) i oceny.</p>
+        <p class="small muted">Dania dobierane są pod sesje gotowania${cal && cal.sesje.length ? ` (${cal.sesje.map(x => `${h(shortDay(x.data))} → ${h(coverText(x.dni))}`).join(', ')})` : ''}: w jednej sesji ten sam posiłek ma najwyżej tyle różnych dań, ile wybierzesz. Uwzględnia profile, miejsca (lunchbox) i oceny, a najpierw wybiera dania, które zużyją zapasy i resztki z opakowań (np. pół puszki kukurydzy) – zwłaszcza z kończącym się terminem.</p>
         <button class="btn">Uzupełnij</button>
       </form>`);
     s.el.querySelector('[data-af]').addEventListener('submit', async e => {

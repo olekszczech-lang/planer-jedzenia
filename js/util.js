@@ -1,6 +1,16 @@
 // Daty jako klucze "yyyy-mm-dd" w czasie lokalnym, formatowanie liczb, escapowanie HTML.
 
-export const APP_VERSION = 'v14';
+export const APP_VERSION = 'v15';
+
+/** „po terminie” / „dziś” / „jutro” / „za 3 dni” / „do 24.11” dla liczby dni do terminu (null → ''). */
+export function dueText(dni, data) {
+  if (dni === null || dni === undefined || dni === '') return '';
+  if (dni < 0) return 'po terminie';
+  if (dni === 0) return 'dziś';
+  if (dni === 1) return 'jutro';
+  if (dni <= 6) return `za ${dni} dni`;
+  return data ? `do ${String(data).slice(8, 10)}.${String(data).slice(5, 7)}` : `za ${dni} dni`;
+}
 
 export const MEALS = ['Śniadanie', 'Obiad', 'Kolacja', 'Przekąska'];
 

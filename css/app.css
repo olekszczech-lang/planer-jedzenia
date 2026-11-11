@@ -501,3 +501,16 @@ body.refreshing .topbar::after {
 /* ── v14: zakupy – do czego jest produkt ── */
 .shop-item .dla { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-top: 2px; }
 .shop-item .dla a { color: inherit; text-decoration: underline; text-decoration-color: var(--border); }
+
+/* ── v15: zapasy z terminami, pomysły z zapasów ── */
+.chip.due { font-size: .72rem; padding: 1px 8px; margin-left: 4px; vertical-align: middle; }
+.chip.soon { background: #fff1c2; color: #6b5200; }
+.chip.muted-chip { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+.soon-card { border-color: #e7b75f; }
+.ideas .idea { border-top: 1px solid var(--border); padding: 8px 0; }
+.ideas .idea:first-of-type { border-top: 0; }
+.ideas .idea p { margin: 4px 0 0; }
+a.warnbox.expiring { display: block; color: #6b4500; text-decoration: none; }
+.shop-row.st { grid-template-columns: 1fr auto auto; }
+.shop-row.st > .name { padding: 10px 0; }
+.ideas .idea .btn { white-space: nowrap; flex-shrink: 0; }

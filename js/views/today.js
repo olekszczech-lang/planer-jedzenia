@@ -3,7 +3,7 @@
 import { live, call, enqueue, patchCache, readCache, writeCache } from '../api.js';
 import { S, potName, osobaName, multOf, macros, gramsOf, celDnia, sortEntries, mealsInUse, mealsOf, placeOf, awayFor, PLACE_ICON, PLACE_LABEL, activeDishes, mealsShown } from '../state.js';
 import { pickDish, chooseAction, busy, toast, sheet } from '../ui.js';
-import { h, today, addDays, fmtDay, fmtNum, truthy, isKey, num, norm } from '../util.js';
+import { h, today, addDays, fmtDay, fmtNum, truthy, isKey, num, norm, dueText } from '../util.js';
 
 /** Podpowiedź kucharza: co zrobić z niezjedzoną porcją. */
 function rescueTip(idPot) {
@@ -33,6 +33,7 @@ export async function render(root, q, ctx) {
       </div>
       <a class="iconbtn" href="#/dzis?d=${addDays(d, 1)}" aria-label="Następny dzień">›</a>
     </div>
+    <div data-expiring></div>
     <section data-summary></section>
     <div class="toolbar"><button class="btn ghost small" data-custom>+ Zjedzone spoza planu</button></div>
     <section data-custom-list></section>
@@ -255,6 +256,13 @@ export async function render(root, q, ctx) {
     });
   }
 
+  // zapasy z kończącym się terminem (dziś, jutro, po terminie) – tylko na dzisiejszym ekranie
+  if (d === today()) live('stock', 'stock', {}, st => {
+    if (!ctx.alive()) return;
+    const soon = (st || []).filter(r => r.dni !== null && r.dni !== undefined && r.dni <= 1).sort((a, b) => a.dni - b.dni);
+    const box = root.querySelector('[data-expiring]');
+    if (box) box.innerHTML = !soon.length ? '' : `<a class="warnbox expiring" href="#/zakupy?t=zapasy">⏰ Zużyj najpierw: ${soon.map(r => `<b>${h(r.Nazwa)}</b> (${h(dueText(r.dni))})`).join(', ')} <span class="small">→ co z tego ugotować</span></a>`;
+  }).catch(() => {});
   live(logKey, 'dayLog', { data: d }, l => { if (!ctx.alive()) return; log = l; if (rows.length) drawAll(); }).catch(() => {});
   await live(cacheKey, 'plan', { from: d, to: d }, draw);
 }
