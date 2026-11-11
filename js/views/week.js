@@ -1,6 +1,8 @@
 // Tydzień: siatka dzień × posiłek, zmiana potraw, autouzupełnianie, szablony.
 import { live, call } from '../api.js';
 import { S, potName, osobaName, gramsOf, sortEntries, mealsInUse, awayFor, isKid, PLACE_ICON } from '../state.js';
+
+const VIEWS = [['dni', '📅 Dni'], ['tabela', '▦ Tabela'], ['osoba', '🙋 Osoba'], ['potrawy', '🍲 Potrawy']];
 import { pickDish, chooseAction, busy, toast, sheet } from '../ui.js';
 import { h, today, addDays, mondayOf, fmtDay, fmtRange, fmtNum, truthy, isKey } from '../util.js';
 
@@ -8,6 +10,9 @@ export async function render(root, q, ctx) {
   const from = mondayOf(isKey(q.w) ? q.w : today());
   const to = addDays(from, 6);
   let rows = [];
+  let view = localStorage.getItem('planer.weekView') || 'dni';
+  let person = localStorage.getItem('planer.weekPerson') || S.idx.aktywne[0];
+  if (!S.idx.osoba[person]) person = S.idx.aktywne[0];
 
   root.innerHTML = `
     <div class="datenav">
@@ -20,13 +25,19 @@ export async function render(root, q, ctx) {
       <button class="btn" data-autofill>Uzupełnij puste</button>
       <button class="btn ghost" data-templates>Szablony</button>
     </div>
+    <div class="chips filter" data-views>${VIEWS.map(([v, l]) => `<button class="chip ${v === view ? 'on' : ''}" data-view="${v}">${l}</button>`).join('')}
+      ${view === 'osoba' ? S.idx.aktywne.map(o => `<button class="chip ${o === person ? 'on' : ''}" data-person="${h(o)}">${h(osobaName(o))}</button>`).join('') : ''}</div>
     <section data-days><div class="loading">Ładowanie planu…</div></section>`;
 
   const draw = data => {
     if (!ctx.alive()) return;
     rows = sortEntries(data);
     const days = Array.from({ length: 7 }, (_, i) => addDays(from, i));
-    root.querySelector('[data-days]').innerHTML = days.map(d => `
+    const box = root.querySelector('[data-days]');
+    if (view === 'tabela') { box.innerHTML = tableView(days); return; }
+    if (view === 'osoba') { box.innerHTML = personView(days); return; }
+    if (view === 'potrawy') { box.innerHTML = dishView(); return; }
+    box.innerHTML = days.map(d => `
       <article class="card day ${d === today() ? 'is-today' : ''}">
         <a class="day-title" href="#/dzis?d=${d}">${h(fmtDay(d, true))}</a>
         ${mealsInUse().map(typ => {
@@ -44,13 +55,43 @@ export async function render(root, q, ctx) {
       </article>`).join('');
   };
 
+  const short = n => n.length > 28 ? n.slice(0, 26) + '…' : n;
+  const tableView = days => `<div class="wtable-wrap"><table class="wtable">
+      <tr><th></th>${days.map(d => `<th class="${d === today() ? 'is-today' : ''}"><a href="#/dzis?d=${d}">${h(fmtDay(d))}</a></th>`).join('')}</tr>
+      ${mealsInUse().map(typ => `<tr><th>${h(typ)}</th>${days.map(d => {
+        const es = rows.filter(r => r.Data === d && r.Typ_posilku === typ);
+        const ids = [...new Set(es.map(e => e.ID_Pot))];
+        return `<td class="slot-cell" data-d="${d}" data-typ="${h(typ)}">${ids.map(id => `<div>${h(short(potName(id)))}<span class="muted">${es.filter(e => e.ID_Pot === id).map(e => ' ' + h(osobaName(e.ID_Osoby)).slice(0, 1)).join('')}</span></div>`).join('') || '<span class="muted">+</span>'}</td>`;
+      }).join('')}</tr>`).join('')}
+    </table></div><p class="small muted">Litery = osoby. Przewiń w bok. Kliknij komórkę, by zmienić.</p>`;
+  const personView = days => days.map(d => {
+    const es = rows.filter(r => r.Data === d && r.ID_Osoby === person);
+    const kcal = es.reduce((a, e) => a + (S.idx.sum[e.ID_Pot] ? Number(S.idx.sum[e.ID_Pot].kcal) * (Number(e.Mnoznik) || 0) : 0), 0);
+    return `<article class="card day ${d === today() ? 'is-today' : ''}"><div class="row-between"><a class="day-title" href="#/dzis?d=${d}">${h(fmtDay(d, true))}</a><span class="small muted">${fmtNum(kcal)} kcal</span></div>
+      ${es.map(e => `<div class="slot"><span class="slot-type">${h(e.Typ_posilku)}</span><span class="slot-body"><span class="slot-dish">${h(potName(e.ID_Pot))}${PLACE_ICON[e.Miejsce] ? ' ' + PLACE_ICON[e.Miejsce] : ''}</span><span class="slot-people">${fmtNum(gramsOf(e))} g</span></span></div>`).join('') || '<p class="muted small">brak posiłków w domu</p>'}</article>`;
+  }).join('');
+  const dishView = () => {
+    const by = {};
+    rows.forEach(e => { (by[e.ID_Pot] ||= []).push(e); });
+    return Object.keys(by).sort((a, b) => by[b].length - by[a].length).map(id => {
+      const es = by[id];
+      const dni = [...new Set(es.map(e => e.Data))];
+      return `<article class="card"><div class="row-between"><a href="#/przepis?id=${encodeURIComponent(id)}&back=1"><b>${h(potName(id))}</b></a><span class="chip">${es.length} porcji</span></div>
+        <p class="small muted">${dni.map(d => h(fmtDay(d))).join(' · ')} · ${[...new Set(es.map(e => osobaName(e.ID_Osoby)))].map(h).join(', ')} · ${fmtNum(es.reduce((a, e) => a + gramsOf(e), 0))} g łącznie</p></article>`;
+    }).join('') || '<div class="empty"><p>Brak zaplanowanych posiłków.</p></div>';
+  };
+
   const reload = async () => { await live(`plan:${from}:${to}`, 'plan', { from, to }, draw); };
 
   root.onclick = async ev => {
-    const slot = ev.target.closest('.slot');
+    const vb = ev.target.closest('[data-view]');
+    if (vb) { localStorage.setItem('planer.weekView', vb.dataset.view); ctx.refresh(); return; }
+    const pb = ev.target.closest('[data-person]');
+    if (pb) { localStorage.setItem('planer.weekPerson', pb.dataset.person); ctx.refresh(); return; }
+    const slot = ev.target.closest('.slot[data-d], .slot-cell');
     if (slot) {
       const { d, typ } = slot.dataset;
-      const filled = !slot.classList.contains('free');
+      const filled = rows.some(r => r.Data === d && r.Typ_posilku === typ);
       const inSlot = [...new Set(rows.filter(r => r.Data === d && r.Typ_posilku === typ).map(r => r.ID_Osoby))];
       const kids = inSlot.filter(isKid), adults = inSlot.filter(x => !isKid(x));
       const split = kids.length && adults.length;

@@ -304,3 +304,63 @@ details.person > summary { padding: 10px 0; font-weight: 400; }
 @keyframes up { from { transform: translateY(16px); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ── v4: zakładki, sesje, edytor, zapasy ───────────── */
+.tabs { display: flex; gap: 6px; overflow-x: auto; margin: 6px 0 10px; padding-bottom: 2px; }
+.tab {
+  flex: 1 0 auto; display: flex; flex-direction: column; align-items: center; gap: 1px;
+  padding: 8px 12px; border-radius: 12px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); font: inherit; font-weight: 600; font-size: .88rem; cursor: pointer; text-decoration: none;
+}
+.tab small { font-weight: 400; color: var(--muted); font-size: .72rem; }
+.tab.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.tab.on small { color: var(--accent-ink); opacity: .85; }
+details.phase { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 14px; margin: 10px 0; }
+details.phase > summary { font-size: 1rem; padding: 10px 0; }
+.dish-block { border-top: 1px solid var(--border); padding: 10px 0 4px; }
+.dish-block:first-of-type { border-top: 0; }
+.dish-block h4 { margin: 0; font-size: .98rem; }
+.dish-block h4 a { color: var(--text); }
+.steps-list { padding-left: 0; }
+.checklist li { list-style: none; }
+.checklist .step-meta { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.table.ing { margin: 2px 0 8px 32px; width: calc(100% - 32px); font-size: .8rem; }
+.table.ing th { font-weight: 600; color: var(--muted); font-size: .7rem; text-align: left; }
+.table.ing th.num { text-align: right; }
+.table.ing td { padding: 3px 0; }
+.warn-text { color: #b45309; }
+.linkbtn { border: 0; background: none; color: var(--accent); font: inherit; font-size: .82rem; padding: 6px 0; cursor: pointer; }
+tr.tap { cursor: pointer; }
+tr.tap:hover td { background: var(--surface-2); }
+.bar.over span { background: #d97706; }
+.meal-h { color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; }
+
+.shop-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px; border-top: 1px solid var(--border); }
+.shop-row:first-of-type { border-top: 0; }
+.shop-row .shop-item { border-top: 0; }
+.shop-row.done .name, .shop-row.done .qty { color: var(--done); text-decoration: line-through; }
+.shop-row > .name { padding: 10px 0; }
+.shop-row > .qty { font-weight: 700; white-space: nowrap; }
+.shop-item .qty { text-align: right; }
+.portion-row { display: grid; grid-template-columns: 1fr auto; align-items: center; }
+
+.wtable-wrap { overflow-x: auto; margin: 6px -16px; padding: 0 16px; }
+.wtable { border-collapse: separate; border-spacing: 0; font-size: .74rem; min-width: 760px; }
+.wtable th, .wtable td { border-bottom: 1px solid var(--border); padding: 6px; vertical-align: top; text-align: left; }
+.wtable th:first-child { position: sticky; left: 0; background: var(--bg); z-index: 1; width: 78px; }
+.wtable th.is-today a { color: var(--accent); }
+.wtable td { width: 96px; cursor: pointer; }
+.wtable td:hover { background: var(--surface-2); }
+.wtable td div + div { margin-top: 4px; }
+
+.ed-row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; padding: 8px 0; border-top: 1px dashed var(--border); align-items: center; }
+.ing-row { grid-template-columns: 2.2fr .9fr .8fr 1.4fr auto; }
+.ing-row .wide { grid-column: 1 / -2; }
+.ed-row .span-all { grid-column: 1 / -1; }
+.ed-row .input { min-height: 38px; font-size: .85rem; padding: 0 8px; }
+.ed-row textarea.input { min-height: 60px; padding: 6px 8px; }
+.new-ing { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; background: #fff7e6; padding: 6px; border-radius: 8px; }
+.new-ing .input { width: auto; flex: 1 0 70px; }
+.grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.form h3 { margin-top: 12px; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .new-ing { background: #3a2f12; } }

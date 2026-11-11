@@ -1,11 +1,15 @@
 // Przepisy: lista (wyszukiwarka, filtry posiłku i cech) + szczegóły: sekcje, etapy, combo, oceny domowników.
 import { S, MODE_ICON, KID_FACES, tagsOf, isKid, osobaName } from '../state.js';
-import { enqueue, patchCache } from '../api.js';
+import { enqueue, patchCache, call } from '../api.js';
+import { ensureBoot } from '../state.js';
+import { substitutesFor } from '../substitutes.js';
+import { sheet, busy, toast } from '../ui.js';
 import { h, norm, num, fmtNum, fmtQty, truthy } from '../util.js';
 
 const FILTER_KEY = 'planer.recipeFilter';
 const TAG_FILTERS = ['niski IG', 'dla dzieci', 'wysokobiałkowe', 'smoothie', 'combo', 'lunchbox', 'wege', 'masa'];
 const MODE_FILTERS = ['mrożenie', 'lodówka', 'na świeżo', 'hybryda'];
+const STATUS_FILTERS = [['szkic', '📝 szkice do sprawdzenia']];
 
 function stars(avg) {
   if (!avg) return '';
@@ -13,7 +17,7 @@ function stars(avg) {
 }
 
 export async function render(root, q, ctx, name) {
-  if (name === 'przepis') return renderDetail(root, q.id);
+  if (name === 'przepis') return renderDetail(root, q.id, q.back);
 
   let f = {};
   try { f = JSON.parse(sessionStorage.getItem(FILTER_KEY) || '{}'); } catch { /* domyślne */ }
@@ -24,7 +28,8 @@ export async function render(root, q, ctx, name) {
     <input type="search" class="input" placeholder="Szukaj przepisu lub składnika…" data-q value="${h(q.q || '')}" autocomplete="off">
     <div class="chips filter">${chip('typ', '', 'Wszystkie')}${S.meals.map(t => chip('typ', t, t)).join('')}</div>
     <div class="chips filter">${TAG_FILTERS.map(t => chip('tag', t, t)).join('')}</div>
-    <div class="chips filter">${MODE_FILTERS.map(m => chip('tryb', m, MODE_ICON[m] + ' ' + m)).join('')}</div>
+    <div class="chips filter">${MODE_FILTERS.map(m => chip('tryb', m, MODE_ICON[m] + ' ' + m)).join('')}${STATUS_FILTERS.map(([v, l]) => chip('status', v, l)).join('')}</div>
+    <div class="toolbar"><a class="btn small" href="#/edytor">+ Nowy przepis</a><button class="btn ghost small" data-import>🔗 Importuj ze strony</button></div>
     <p class="small muted" data-count></p>
     <ul class="recipe-list" data-list></ul>`;
 
@@ -36,6 +41,7 @@ export async function render(root, q, ctx, name) {
       .filter(p => !f.typ || (S.idx.typyByPot[p.ID_Pot] || []).includes(f.typ))
       .filter(p => !f.tag || tagsOf(p).includes(f.tag))
       .filter(p => !f.tryb || p.Tryb === f.tryb)
+      .filter(p => !f.status || p.Status === f.status)
       .filter(p => !needle || norm(p.Nazwa).includes(needle) ||
         (S.idx.rec[p.ID_Pot] || []).some(r => norm((S.idx.skl[r.ID_Skl] || {}).Nazwa).includes(needle)))
       .sort((a, b) => (a.Kategoria === 'Baza') - (b.Kategoria === 'Baza') || a.Nazwa.localeCompare(b.Nazwa, 'pl'));
@@ -53,6 +59,7 @@ export async function render(root, q, ctx, name) {
 
   input.addEventListener('input', draw);
   root.onclick = ev => {
+    if (ev.target.closest('[data-import]')) { importDialog(ctx); return; }
     const b = ev.target.closest('[data-f]');
     if (!b) return;
     const { f: group, v } = b.dataset;
@@ -66,7 +73,7 @@ export async function render(root, q, ctx, name) {
 
 const SPRZET = { piekarnik: '🔥 piekarnik', garnek: '🍲 garnek', patelnia: '🍳 patelnia', blender: '🌀 blender' };
 
-function renderDetail(root, id) {
+function renderDetail(root, id, back) {
   const p = S.idx.pot[id];
   if (!p) {
     root.innerHTML = '<div class="empty"><p>Nie znaleziono przepisu.</p><a class="btn" href="#/przepisy">Wszystkie przepisy</a></div>';
@@ -82,7 +89,11 @@ function renderDetail(root, id) {
   const uzywa = rec.map(r => S.idx.skl[r.ID_Skl]).filter(x => x && x.Zrodlo_Pot);
 
   root.innerHTML = `
-    <a href="#/przepisy" class="small">‹ Wszystkie przepisy</a>
+    <div class="row-between">
+      ${back && window.__inAppNav > 0 ? '<button class="linkbtn" data-back>‹ Wróć</button>' : '<a href="#/przepisy" class="small">‹ Wszystkie przepisy</a>'}
+      <a class="btn ghost small" href="#/edytor?id=${encodeURIComponent(id)}">✏️ Edytuj</a>
+    </div>
+    ${p.Status === 'szkic' ? '<div class="warnbox"><p>📝 Szkic – sprawdź składniki i etapy w edytorze i zatwierdź. Szkice nie trafiają do planowania.</p></div>' : ''}
     <article class="card">
       <h2>${h(p.Nazwa)}</h2>
       <div class="chips">
@@ -119,7 +130,7 @@ function renderDetail(root, id) {
         ${sections.length > 1 ? `<h4 class="sec">${h(sec)}</h4>` : ''}
         <table class="table">${rec.filter(r => (r.Sekcja || 'Główne') === sec).map(r => {
           const sk = S.idx.skl[r.ID_Skl] || {};
-          return `<tr><td>${h(sk.Nazwa || r.ID_Skl)}${sk.Zrodlo_Pot ? ' 🔗' : ''}</td><td class="num">${h(fmtQty(r.Ilosc, r.Jednostka))}</td></tr>`;
+          return `<tr class="tap" data-sub="${h(r.ID_Skl)}"><td>${h(sk.Nazwa || r.ID_Skl)}${sk.Zrodlo_Pot ? ' 🔗' : ''}${r.Przygotowanie ? `<br><span class="small muted">${h(r.Przygotowanie)}</span>` : ''}</td><td class="num">${h(fmtQty(r.Ilosc, r.Jednostka))} <span class="muted">⇄</span></td></tr>`;
         }).join('')}</table>`).join('') || '<p class="muted">Brak receptury</p>'}
     </article>
 
@@ -127,18 +138,21 @@ function renderDetail(root, id) {
       <h3>Etapy</h3>
       <ol class="steps">${kroki.map(k => `<li>
         <div class="step-meta">
-          <span class="chip">${h(k.Sekcja)}</span>
+          <span class="chip strong">${h(k.Etap || k.Sekcja)}</span>
           ${SPRZET[k.Sprzet] ? `<span class="chip">${SPRZET[k.Sprzet]}${num(k.Temp_C) ? ' ' + num(k.Temp_C) + '°C' : ''}</span>` : ''}
           ${num(k.Czas_min) ? `<span class="chip">⏱ ${num(k.Czas_min)} min${num(k.Aktywny_min) && num(k.Aktywny_min) < num(k.Czas_min) ? ' (aktywnie ' + num(k.Aktywny_min) + ')' : ''}</span>` : ''}
           <span class="chip ${k.Kiedy === 'świeżo' ? 'warn' : ''}">${k.Kiedy === 'świeżo' ? 'w dniu jedzenia' : 'w sesji'}</span>
           ${num(k.Dziecko) ? `<span class="chip kid">👧 ${num(k.Dziecko)}+</span>` : ''}
         </div>
-        <p>${h(k.Opis)}</p></li>`).join('')}</ol>
+        <p>${h(k.Opis)}</p>${k.Skladniki ? `<p class="small muted">${String(k.Skladniki).split('|').map(n => h(n) + ' ' + h(ingQty(rec, n))).join(' · ')}</p>` : ''}</li>`).join('')}</ol>
     </article>` : ''}
     ${p.Instrukcja ? `<article class="card"><h3>Przygotowanie (źródło)</h3><p class="instr">${h(p.Instrukcja)}</p></article>` : ''}
     ${p.Link ? `<p><a class="btn ghost" href="${h(p.Link)}" target="_blank" rel="noopener">Przepis źródłowy ↗</a></p>` : ''}`;
 
   root.onclick = ev => {
+    if (ev.target.closest('[data-back]')) { history.back(); return; }
+    const sub = ev.target.closest('[data-sub]');
+    if (sub) { openSubstitutes(root, id, sub.dataset.sub, back); return; }
     const b = ev.target.closest('[data-rate]');
     if (!b) return;
     const [who, val] = b.dataset.rate.split(':');
@@ -152,6 +166,55 @@ function renderDetail(root, id) {
     patchCache('bootstrap', b => ({ ...b, oceny: S.idx.oceny }));
     enqueue('rate', { idPot: id, idOsoby: who, ocena: Number(val) });
   };
+}
+
+function ingQty(rec, name) {
+  const rows = rec.filter(r => (S.idx.skl[r.ID_Skl] || {}).Nazwa === name);
+  if (!rows.length) return '';
+  return fmtQty(rows.reduce((a, r) => a + num(r.Ilosc), 0), rows[0].Jednostka);
+}
+
+/** Zamienniki składnika + zamiana w przepisie (zmienia przepis w arkuszu, kcal przeliczane). */
+function openSubstitutes(root, idPot, idSkl, back) {
+  const sk = S.idx.skl[idSkl] || {};
+  const list = substitutesFor(idSkl);
+  const s = sheet('Zamiennik: ' + (sk.Nazwa || ''), `
+    <p class="small muted">${h(sk.Nazwa)}: ${fmtNum(num(sk.kcal_100g))} kcal · B ${fmtNum(num(sk.B_100g), 1)} g /100 g · IG ${h(sk.IG_klasa || '?')}</p>
+    ${list.length ? `<ul class="picklist">${list.map(x => `<li><button data-to="${h(x.ID_Skl)}">
+      <span>${h(x.Nazwa)}</span><small>${h(x.powod)} · ${fmtNum(num(x.kcal_100g))} kcal · B ${fmtNum(num(x.B_100g), 1)} g /100 g</small></button></li>`).join('')}</ul>`
+      : '<p class="muted">Brak sensownych zamienników w bazie.</p>'}
+    <p class="small muted">Zamiana zmienia przepis w bibliotece (ta sama ilość w gramach). Kalorie przeliczą się same.</p>`);
+  s.el.addEventListener('click', async e => {
+    const b = e.target.closest('[data-to]');
+    if (!b) return;
+    await busy(b, async () => {
+      await call('replaceIngredient', { idPot, idSkl, nowySkl: b.dataset.to });
+      await ensureBoot(true);
+      s.close();
+      toast('Zamieniono składnik', 'ok');
+      renderDetail(root, idPot, back);
+    });
+  });
+}
+
+/** Import przepisu ze strony → szkic w edytorze. */
+function importDialog(ctx) {
+  const s = sheet('Import przepisu ze strony', `
+    <form class="form" data-imp>
+      <label>Adres przepisu<input class="input" name="url" type="url" required placeholder="https://www.kwestiasmaku.com/przepis/…"></label>
+      <p class="small muted">Pobiorę składniki i kroki, dopasuję składniki do Twojej bazy i podzielę kroki na etapy. Przepis trafi jako <b>szkic</b> – sprawdzisz go i zatwierdzisz w edytorze.</p>
+      <button class="btn">Pobierz</button>
+    </form>`);
+  s.el.querySelector('[data-imp]').addEventListener('submit', async e => {
+    e.preventDefault();
+    const btn = e.target.querySelector('button');
+    await busy(btn, async () => {
+      const draft = await call('importRecipe', { url: e.target.elements.url.value.trim() });
+      sessionStorage.setItem('planer.draft', JSON.stringify(draft));
+      s.close();
+      ctx.go('#/edytor?draft=1');
+    });
+  });
 }
 
 function comboUsers(produkty) {

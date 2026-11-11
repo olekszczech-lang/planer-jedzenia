@@ -9,6 +9,7 @@ import * as shopping from './views/shopping.js';
 import * as cooking from './views/cooking.js';
 import * as recipes from './views/recipes.js';
 import * as settings from './views/settings.js';
+import * as editor from './views/editor.js';
 
 const ROUTES = {
   dzis: { view: today, title: 'Dziś' },
@@ -17,11 +18,15 @@ const ROUTES = {
   gotowanie: { view: cooking, title: 'Gotowanie' },
   przepisy: { view: recipes, title: 'Przepisy' },
   przepis: { view: recipes, title: 'Przepis', nav: 'przepisy' },
+  edytor: { view: editor, title: 'Edytor przepisu', nav: 'przepisy' },
   ustawienia: { view: settings, title: 'Ustawienia', needsBoot: false }
 };
 
 const root = document.getElementById('view');
 let navId = 0;
+const scrollMemory = {};
+let currentHash = location.hash;
+window.__inAppNav = 0;
 
 function parseHash() {
   const [path, qs] = location.hash.replace(/^#\/?/, '').split('?');
@@ -40,6 +45,10 @@ function makeCtx(id) {
 
 async function route() {
   const id = ++navId;
+  document.querySelectorAll('.sheet-wrap').forEach(w => w.remove()); // okienka nie przechodzą na inny ekran
+  scrollMemory[currentHash] = window.scrollY;
+  const back = scrollMemory[location.hash];
+  currentHash = location.hash;
   const { name, q } = parseHash();
   const r = ROUTES[name];
   document.getElementById('title').textContent = r.title;
@@ -57,6 +66,7 @@ async function route() {
     }
     if (id !== navId) return;
     await r.view.render(root, q, makeCtx(id), name);
+    if (id === navId) window.scrollTo(0, back || 0);
   } catch (e) {
     if (id !== navId) return;
     root.innerHTML = `<div class="empty">
@@ -97,17 +107,21 @@ document.getElementById('feedback').addEventListener('click', () => {
     </form>`);
   const f = s.el.querySelector('[data-fb]');
   setTimeout(() => f.elements.opis.focus(), 60);
-  f.addEventListener('submit', async e => {
+  let sent = false;
+  f.addEventListener('submit', e => {
     e.preventDefault();
+    if (sent) return; // drugie stuknięcie „Wyślij” nie dubluje uwagi
+    sent = true;
+    f.querySelector('button').disabled = true;
     const kto = f.elements.kto ? f.elements.kto.value : '';
     if (kto) localStorage.setItem('planer.feedbackWho', kto);
-    await enqueue('feedback', { kto, ekran, typ: f.elements.typ.value, opis: f.elements.opis.value.trim(), priorytet: f.elements.priorytet.value });
+    enqueue('feedback', { kto, ekran, typ: f.elements.typ.value, opis: f.elements.opis.value.trim(), priorytet: f.elements.priorytet.value });
     s.close();
     toast('Dzięki! Uwaga zapisana' + (navigator.onLine ? '' : ' (wyśle się po powrocie sieci)'), 'ok');
   });
 });
 
-window.addEventListener('hashchange', route);
+window.addEventListener('hashchange', () => { window.__inAppNav++; route(); });
 route();
 flush();
 
