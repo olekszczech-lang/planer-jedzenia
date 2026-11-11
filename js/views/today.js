@@ -1,7 +1,7 @@
 // Dziś: posiłki dnia per osoba, odhaczanie „zjedzone”, wpisy spoza planu (jak w Fitatu),
 // niezjedzone porcje z pomysłem na ich uratowanie, bilans kcal.
 import { live, call, enqueue, patchCache, readCache, writeCache } from '../api.js';
-import { S, potName, osobaName, multOf, macros, gramsOf, celDnia, sortEntries, mealsInUse, mealsOf, placeOf, awayFor, PLACE_ICON, PLACE_LABEL, activeDishes } from '../state.js';
+import { S, potName, osobaName, multOf, macros, gramsOf, celDnia, sortEntries, mealsInUse, mealsOf, placeOf, awayFor, PLACE_ICON, PLACE_LABEL, activeDishes, mealsShown } from '../state.js';
 import { pickDish, chooseAction, busy, toast, sheet } from '../ui.js';
 import { h, today, addDays, fmtDay, fmtNum, truthy, isKey, num, norm } from '../util.js';
 
@@ -84,7 +84,7 @@ export async function render(root, q, ctx) {
   }
 
   function drawMeals() {
-    root.querySelector('[data-meals]').innerHTML = mealsInUse().map(typ => {
+    root.querySelector('[data-meals]').innerHTML = mealsShown(rows).map(typ => {
       const entries = rows.filter(r => r.Typ_posilku === typ);
       const away = awayFor(d, typ);
       const awayHtml = away.length ? `<p class="away small">🏫 ${away.map(a => `${h(osobaName(a.id))}${a.uwagi ? ' – ' + h(a.uwagi) : ''}`).join(' · ')}</p>` : '';

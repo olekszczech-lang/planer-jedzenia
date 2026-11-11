@@ -72,6 +72,16 @@ export function mealsInUse() {
   return list.length ? list : S.meals;
 }
 
+/** Wpis posiłku, którego osoba już nie je (zmiana „Posiłki” w profilu) – nie może być niewidoczny. */
+export const offProfile = e => !mealsOf(e.ID_Osoby).includes(e.Typ_posilku);
+
+/** Posiłki do pokazania: te z profili + każdy, który ma wpisy (np. stare „Podwieczorek” po zmianie profilu). */
+export function mealsShown(entries) {
+  const used = new Set(mealsInUse());
+  (entries || []).forEach(e => used.add(e.Typ_posilku));
+  return S.meals.filter(m => used.has(m));
+}
+
 /** Typy potraw pasujące do posiłku (np. Podwieczorek ← Przekąska). */
 export const dishTypesFor = typ => (S.boot.mealAliases || {})[typ] || [typ];
 

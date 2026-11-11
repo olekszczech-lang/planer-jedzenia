@@ -295,8 +295,8 @@ export async function render(root, q = {}) {
       });
     } else if (f.matches('[data-person]')) {
       await busy(btn, async () => {
-        await call('updateProfile', { id: f.dataset.person, patch: readPerson(f) });
-        toast('Zapisano profil', 'ok');
+        const r = await call('updateProfile', { id: f.dataset.person, patch: readPerson(f) });
+        toast(r && r._usunieto ? `Zapisano profil · usunięto z planu ${r._usunieto} posiłków, których ta osoba już nie je` : 'Zapisano profil', 'ok', 4500);
         await rerender();
       });
     } else if (f.matches('[data-add-person]')) {

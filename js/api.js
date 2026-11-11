@@ -11,7 +11,7 @@ const listeners = new Set();
 
 // Akcje zmieniające plan, sesje albo przepisy. Po nich zapisane w telefonie widoki pochodne (tydzień, dzień,
 // sesje gotowania, kalendarz sesji) są nieaktualne – usuwamy je, żeby ekran nie pokazał np. Gotowania bez nowych dań.
-const PLAN_CHANGES = new Set(['setMeals', 'removeMeal', 'updateEntry', 'autoFill', 'recalcPortions', 'applyTemplate',
+const PLAN_CHANGES = new Set(['setMeals', 'removeMeal', 'removeOrphans', 'updateEntry', 'autoFill', 'recalcPortions', 'applyTemplate',
   'setActualWeight', 'saveSession', 'deleteSession', 'saveCookingSettings', 'updateProfile', 'addProfile', 'setSchedule',
   'saveRecipe', 'replaceIngredient', 'skipEntry', 'unskipEntry', 'recalcNutrition', 'importLibrary', 'fillProducts',
   'updateIngredients', 'migrate']);

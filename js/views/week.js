@@ -1,11 +1,13 @@
 // Tydzień: siatka dzień × posiłek, zmiana potraw, autouzupełnianie, szablony.
 import { live, call } from '../api.js';
-import { S, potName, osobaName, gramsOf, sortEntries, mealsInUse, awayFor, isKid, PLACE_ICON } from '../state.js';
+import { S, potName, osobaName, gramsOf, sortEntries, mealsInUse, mealsShown, offProfile, awayFor, isKid, PLACE_ICON } from '../state.js';
 
 const VIEWS = [['dni', '📅 Dni'], ['tabela', '▦ Tabela'], ['osoba', '🙋 Osoba'], ['potrawy', '🍲 Potrawy']];
 import { pickDish, chooseAction, busy, toast, sheet } from '../ui.js';
 import { h, today, addDays, mondayOf, fmtDay, fmtRange, fmtNum, truthy, isKey } from '../util.js';
 import { shortDay, coverText } from '../sessions.js';
+
+const porcje = (n, one) => n === 1 ? one : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'porcje' : 'porcji');
 
 export async function render(root, q, ctx) {
   const from = mondayOf(isKey(q.w) ? q.w : today());
@@ -42,7 +44,25 @@ export async function render(root, q, ctx) {
     </div>
     <div class="chips filter" data-views>${VIEWS.map(([v, l]) => `<button class="chip ${v === view ? 'on' : ''}" data-view="${v}">${l}</button>`).join('')}
       ${view === 'osoba' ? S.idx.aktywne.map(o => `<button class="chip ${o === person ? 'on' : ''}" data-person="${h(o)}">${h(osobaName(o))}</button>`).join('') : ''}</div>
+    <div data-orphans></div>
     <section data-days><div class="loading">Ładowanie planu…</div></section>`;
+
+  // Posiłki spoza profilu (np. dzieci miały „Podwieczorek”, a teraz w profilu jest „Przekąska”) – widoczne i do usunięcia
+  const drawOrphans = () => {
+    const box = root.querySelector('[data-orphans]');
+    if (!box) return;
+    const t = today();
+    const orph = rows.filter(e => e.Data >= t && offProfile(e));
+    if (!orph.length) { box.innerHTML = ''; return; }
+    const by = {};
+    orph.forEach(e => { (by[e.ID_Osoby] ||= new Set()).add(e.Typ_posilku); });
+    box.innerHTML = `<div class="warnbox">
+      <p>⚠️ W planie są posiłki, których te osoby już nie jedzą (zmienione „Posiłki” w profilu):
+        <b>${Object.keys(by).map(o => `${h(osobaName(o))} – ${[...by[o]].map(h).join(', ')}`).join('; ')}</b>.
+        Gotowanie i zakupy wciąż je liczą (${orph.length} ${porcje(orph.length, 'porcja')} od dziś).</p>
+      <p><button class="btn small" data-orphfix>🧹 Usuń je z planu (od dziś)</button></p>
+    </div>`;
+  };
 
   const draw = data => {
     if (!ctx.alive() || !data) return;
@@ -50,6 +70,7 @@ export async function render(root, q, ctx) {
     rows = sortEntries(data);
     const days = Array.from({ length: 7 }, (_, i) => addDays(from, i));
     const box = root.querySelector('[data-days]');
+    drawOrphans();
     if (view === 'tabela') { box.innerHTML = tableView(days); return; }
     if (view === 'osoba') { box.innerHTML = personView(days); return; }
     if (view === 'potrawy') { box.innerHTML = dishView(); return; }
@@ -57,14 +78,14 @@ export async function render(root, q, ctx) {
       <article class="card day ${d === today() ? 'is-today' : ''}">
         <a class="day-title" href="#/dzis?d=${d}">${h(fmtDay(d, true))}</a>
         <div class="chips day-sess">${sessChips(d)}</div>
-        ${mealsInUse().map(typ => {
+        ${mealsShown(rows.filter(r => r.Data === d)).map(typ => {
           const es = rows.filter(r => r.Data === d && r.Typ_posilku === typ);
           const dishes = [...new Set(es.map(e => e.ID_Pot))];
           return `<button class="slot ${es.length ? '' : 'free'}" data-d="${d}" data-typ="${h(typ)}">
             <span class="slot-type">${h(typ)}</span>
             <span class="slot-body">${dishes.length ? dishes.map(id => `
               <span class="slot-dish ${es.filter(e => e.ID_Pot === id).every(e => truthy(e.Zjedzone)) ? 'done' : ''}">${h(potName(id))}</span>
-              <span class="slot-people">${es.filter(e => e.ID_Pot === id).map(e => `${h(osobaName(e.ID_Osoby))}${PLACE_ICON[e.Miejsce] ? ' ' + PLACE_ICON[e.Miejsce] : ''} ${fmtNum(gramsOf(e))} g`).join(' · ')}</span>`).join('')
+              <span class="slot-people">${es.filter(e => e.ID_Pot === id).map(e => `${h(osobaName(e.ID_Osoby))}${PLACE_ICON[e.Miejsce] ? ' ' + PLACE_ICON[e.Miejsce] : ''} ${fmtNum(gramsOf(e))} g${offProfile(e) ? ' <span class="warn-text" title="Tej osoby nie ma już w tym posiłku (profil)">⚠️ spoza profilu</span>' : ''}`).join(' · ')}</span>`).join('')
               : '<span class="muted">+ dodaj</span>'}
               ${awayFor(d, typ).length ? `<span class="slot-people">🏫 ${awayFor(d, typ).map(a => h(osobaName(a.id))).join(', ')}</span>` : ''}</span>
           </button>`;
@@ -75,7 +96,7 @@ export async function render(root, q, ctx) {
   const short = n => n.length > 28 ? n.slice(0, 26) + '…' : n;
   const tableView = days => `<div class="wtable-wrap"><table class="wtable">
       <tr><th></th>${days.map(d => `<th class="${d === today() ? 'is-today' : ''}"><a href="#/dzis?d=${d}">${h(fmtDay(d))}</a></th>`).join('')}</tr>
-      ${mealsInUse().map(typ => `<tr><th>${h(typ)}</th>${days.map(d => {
+      ${mealsShown(rows).map(typ => `<tr><th>${h(typ)}</th>${days.map(d => {
         const es = rows.filter(r => r.Data === d && r.Typ_posilku === typ);
         const ids = [...new Set(es.map(e => e.ID_Pot))];
         return `<td class="slot-cell" data-d="${d}" data-typ="${h(typ)}">${ids.map(id => `<div>${h(short(potName(id)))}<span class="muted">${es.filter(e => e.ID_Pot === id).map(e => ' ' + h(osobaName(e.ID_Osoby)).slice(0, 1)).join('')}</span></div>`).join('') || '<span class="muted">+</span>'}</td>`;
@@ -138,6 +159,14 @@ export async function render(root, q, ctx) {
     if (ev.target.closest('[data-autofill]')) { openAutofill(); return; }
 
     if (ev.target.closest('[data-templates]')) openTemplates();
+    const of = ev.target.closest('[data-orphfix]');
+    if (of) {
+      await busy(of, async () => {
+        const r = await call('removeOrphans', { from: today() });
+        toast(`Usunięto ${r.usunieto} ${porcje(r.usunieto, 'porcję')} spoza profilu`, 'ok');
+        await reload();
+      });
+    }
   };
 
   /** „Uzupełnij puste” z parametrami: zakres dni, posiłki, ile różnych dań w sesji, nadpisywanie. */
