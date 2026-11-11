@@ -14,7 +14,7 @@ const listeners = new Set();
 const PLAN_CHANGES = new Set(['setMeals', 'removeMeal', 'removeOrphans', 'updateEntry', 'autoFill', 'recalcPortions', 'applyTemplate',
   'setActualWeight', 'saveSession', 'deleteSession', 'saveCookingSettings', 'updateProfile', 'addProfile', 'setSchedule',
   'saveRecipe', 'replaceIngredient', 'skipEntry', 'unskipEntry', 'recalcNutrition', 'importLibrary', 'fillProducts',
-  'updateIngredients', 'migrate']);
+  'updateIngredients', 'migrate', 'importLibrary']);
 const PLAN_CACHES = ['c:plan:', 'c:sessions:', 'c:scal:'];
 
 const changesPlan = (action, params) => PLAN_CHANGES.has(action) ||

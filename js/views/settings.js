@@ -168,8 +168,10 @@ export async function render(root, q = {}) {
     </form>
     <article class="card" data-products>
       <h3>🥗 Baza produktów</h3>
-      <p class="small muted">W bazie: <b>${Object.keys(S.idx.skl).length}</b> produktów. „Uzupełnij” dopisze ok. 100 popularnych produktów (sól, sos sojowy, mięso mielone, napoje roślinne, mąki, sery, ryby…) z kcal, białkiem, tłuszczem i węglowodanami na 100 g i uzupełni makro tam, gdzie go brakuje. Duplikatów nie tworzy – można uruchomić kilka razy.</p>
-      <div class="toolbar"><button class="btn" type="button" data-fill>Uzupełnij bazę produktów</button></div>
+      <p class="small muted">W bazie: <b>${Object.keys(S.idx.skl).length}</b> produktów. „Uzupełnij” dopisze ok. 170 popularnych produktów (mąki pełnoziarniste, mrożonki, nabiał, mięso, ryby, przyprawy…) z kcal, białkiem, tłuszczem i węglowodanami na 100 g, uzupełni brakujące makro i poprawi podejrzane wartości (np. 0,4 kcal przy świeżej papryczce). Duplikatów nie tworzy – można uruchomić kilka razy.</p>
+      <div class="toolbar"><button class="btn" type="button" data-fill>Uzupełnij bazę produktów</button>
+        <button class="btn ghost" type="button" data-library>📚 Dodaj nowe przepisy (dla dzieci)</button></div>
+      <p class="small muted">„Dodaj nowe przepisy” wgra z biblioteki aplikacji przepisy, których jeszcze nie masz – teraz 13 dla dzieci (kotleciki z brokułem, placki z cukinii, paluszki rybne, quesadille, batoniki owsiane, lody jogurtowe…) z etapami, sposobem krojenia i makro. Twoich przepisów nie zmienia.</p>
       <div data-fillres></div>
       <p class="small" data-schema></p>
       <div data-missing><p class="small muted">Sprawdzam produkty bez makro…</p></div>
@@ -237,10 +239,24 @@ export async function render(root, q = {}) {
         const r = await call('fillProducts');
         await ensureBoot(true);
         toast(`Dodano ${r.dodane.length} produktów, uzupełniono makro w ${r.uzupelnione.length}`, 'ok', 5000);
-        root.querySelector('[data-fillres]').innerHTML = r.dodane.length || r.uzupelnione.length ? `<details class="small"><summary>Co się zmieniło</summary>
+        root.querySelector('[data-fillres]').innerHTML = r.dodane.length || r.uzupelnione.length || (r.poprawione || []).length ? `<details class="small"><summary>Co się zmieniło</summary>
           ${r.uzupelnione.length ? `<p><b>Uzupełnione:</b> ${r.uzupelnione.map(h).join(', ')}</p>` : ''}
+          ${(r.poprawione || []).length ? `<p><b>Poprawione:</b> ${r.poprawione.map(h).join(', ')}</p>` : ''}
           ${r.dodane.length ? `<p><b>Nowe produkty:</b> ${r.dodane.map(h).join(', ')}</p>` : ''}</details>` : '<p class="small muted">Baza była już kompletna.</p>';
         showMissing(r.brakMakro);
+      });
+      return true;
+    }
+    const lib = ev.target.closest('[data-library]');
+    if (lib) {
+      await busy(lib, async () => {
+        const r = await call('importLibrary');
+        await ensureBoot(true);
+        toast(r.potrawy ? `Dodano ${r.potrawy} przepisów i ${r.produkty} produktów` : 'Masz już wszystkie przepisy z biblioteki', 'ok', 5000);
+        root.querySelector('[data-fillres]').innerHTML = r.potrawy ? `<details class="small" open><summary>Nowe przepisy (${r.potrawy})</summary>
+          <p>${(r.nowe || []).map(h).join(' · ')}</p>
+          <p class="muted">Znajdziesz je w Przepisach (filtr „dla dzieci”). „Uzupełnij puste” w Tygodniu będzie je proponować dzieciom.</p>
+          ${(r.warnings || []).length ? `<p class="warn-text">${r.warnings.map(h).join('<br>')}</p>` : ''}</details>` : '<p class="small muted">Nic nowego do dodania.</p>';
       });
       return true;
     }

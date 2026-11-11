@@ -8,6 +8,14 @@ import { shortDay, coverText, daysWord } from '../sessions.js';
 
 const HIDE_KEY = 'planer.hideBought';
 
+// „do: Krupnik z kurkami 240 g, Rosół domowy 300 g +2” – dania z okresu, do których potrzebny jest produkt
+const dlaHtml = it => {
+  const d = it.dla || [];
+  if (!d.length) return '';
+  return `<span class="small muted dla">do: ${d.slice(0, 2).map(x => `<a href="#/przepis?id=${encodeURIComponent(x.ID_Pot)}&back=1">${h(x.Nazwa)}</a>${x.ilosc ? ' ' + h(fmtQty(x.ilosc, x.jedn)) : ''}`).join(', ')}${d.length > 2 ? ` <span>+${d.length - 2}</span>` : ''}</span>`;
+};
+const UNITS = ['szt', 'opak.', 'g', 'kg', 'ml', 'l'];
+
 const pieces = it => {
   if (!it.opakowanie) return '';
   if (it.opakowanie === 'szt' || it.opakowanie === 'ząbek') return `${it.sztuk} ${it.opakowanie === 'szt' ? 'szt' : 'ząbk.'}`;
@@ -58,6 +66,8 @@ async function renderList(root, q, ctx) {
     </div>
     <div class="toolbar">
       <button class="btn" data-build>Generuj z planu</button>
+      <button class="btn ghost" data-additem>+ Dodaj produkt</button>
+      <button class="btn ghost" data-todoist>✅ Do Todoist</button>
       <label class="check"><input type="checkbox" data-hide ${hide ? 'checked' : ''}> Ukryj kupione</label>
     </div>
     <section data-list><div class="loading">Ładowanie listy…</div></section>`;
@@ -85,7 +95,8 @@ async function renderList(root, q, ctx) {
     const box = root.querySelector('[data-list]');
     if (!items.length) {
       box.innerHTML = `<div class="empty"><p>Lista na ten okres jest pusta.</p>
-        <p class="muted small">„Generuj z planu” policzy składniki ze wszystkich zaplanowanych posiłków, odejmie zapasy i zaokrągli do opakowań ze sklepu.</p></div>`;
+        <p class="muted small">„Generuj z planu” policzy składniki ze wszystkich zaplanowanych posiłków, odejmie zapasy i zaokrągli do opakowań ze sklepu.
+        Inne rzeczy (np. chemię, przekąski) dopiszesz przyciskiem „+ Dodaj produkt”.</p></div>`;
       return;
     }
     const fromStock = items.filter(i => num(i.Ilosc) === 0);
@@ -99,10 +110,11 @@ async function renderList(root, q, ctx) {
           <div class="shop-row ${truthy(i.Kupione) ? 'done' : ''}">
             <label class="shop-item">
               <input type="checkbox" data-skl="${h(i.ID_Skl)}" ${truthy(i.Kupione) ? 'checked' : ''}>
-              <span class="name">${h(i.Nazwa)}${i.zapas ? `<br><span class="small muted">w zapasach: ${h(fmtQty(i.zapas, i.Jednostka))}</span>` : ''}</span>
+              <span class="name">${h(i.Nazwa)}${i.wlasne ? ' <span class="small muted">· dodane</span>' : ''}${i.zapas ? `<br><span class="small muted">w zapasach: ${h(fmtQty(i.zapas, i.Jednostka))}</span>` : ''}${dlaHtml(i)}</span>
               <span class="qty">${i.opakowanie ? h(pieces(i)) : h(fmtQty(i.Ilosc, i.Jednostka))}${i.opakowanie ? `<br><span class="small muted">${h(fmtQty(i.Ilosc, i.Jednostka))}${i.zostanie ? ` · zostanie ${h(fmtQty(i.zostanie, 'g'))}` : ''}</span>` : ''}</span>
             </label>
-            <button class="iconbtn small" data-have="${h(i.ID_Skl)}" aria-label="Mam w domu">⋯</button>
+            ${i.wlasne ? `<button class="iconbtn small" data-del="${h(i.ID_Skl)}" aria-label="Usuń z listy">✕</button>`
+              : `<button class="iconbtn small" data-have="${h(i.ID_Skl)}" aria-label="Mam w domu">⋯</button>`}
           </div>`).join('')}
       </article>`).join('') +
       (leftovers.length ? `<article class="card"><h3>♻️ Resztki z opakowań – nie marnuj</h3>
@@ -157,6 +169,48 @@ async function renderList(root, q, ctx) {
         await writeCache(cacheKey, d);
         draw(d);
         toast(`Lista: ${d.items.filter(i => num(i.Ilosc) > 0).length} pozycji do kupienia`);
+      });
+      return;
+    }
+    if (ev.target.closest('[data-additem]')) {
+      const s = sheet('Dodaj do listy zakupów', `
+        <form class="form" data-add>
+          <label>Produkt<input class="input" name="n" list="skl-shop" required autocomplete="off" placeholder="np. papier do pieczenia, jogurt pitny"></label>
+          <datalist id="skl-shop">${Object.values(S.idx.skl).map(x => `<option value="${h(x.Nazwa)}">`).join('')}</datalist>
+          <div class="grid2">
+            <label>Ilość<input class="input" name="q" type="number" step="any" min="0" value="1" inputmode="decimal"></label>
+            <label>Jednostka<select class="input" name="j">${UNITS.map(u => `<option>${u}</option>`).join('')}</select></label>
+          </div>
+          <p class="small muted">Dodane ręcznie zostają na liście także po ponownym „Generuj z planu”.</p>
+          <button class="btn">Dodaj</button>
+        </form>`);
+      s.el.querySelector('[data-add]').addEventListener('submit', async e => {
+        e.preventDefault();
+        const f = e.target.elements;
+        await busy(e.target.querySelector('button'), async () => {
+          const d = await call('addShoppingItem', { idListy, nazwa: f.n.value.trim(), ilosc: num(f.q.value) || 1, jednostka: f.j.value });
+          await writeCache(cacheKey, d);
+          s.close();
+          draw(d);
+          toast(`Dodano: ${f.n.value.trim()}`, 'ok');
+        });
+      });
+      return;
+    }
+    const del = ev.target.closest('[data-del]');
+    if (del) {
+      await busy(del, async () => {
+        const d = await call('removeShoppingItem', { idListy, idSkl: del.dataset.del });
+        await writeCache(cacheKey, d);
+        draw(d);
+      });
+      return;
+    }
+    const td = ev.target.closest('[data-todoist]');
+    if (td) {
+      await busy(td, async () => {
+        const r = await call('exportShopping', { idListy });
+        toast(`Todoist: ${r.utworzono} pozycji w zadaniu „🛒 Zakupy ${fmtRange(from, to)}”${r.bledy ? ` (${r.bledy} nie weszło)` : ''}`, r.bledy ? 'error' : 'ok', 5000);
       });
       return;
     }
