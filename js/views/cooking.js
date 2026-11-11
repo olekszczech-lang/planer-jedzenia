@@ -5,7 +5,7 @@ import { live, call } from '../api.js';
 import { MODE_ICON } from '../state.js';
 import { busy, toast } from '../ui.js';
 import { openLabels } from '../labels.js';
-import { editSession, coverText, shortDay } from '../sessions.js';
+import { editSession, coverText, shortDay, DAY_SHORT, dow } from '../sessions.js';
 import { h, today, addDays, mondayOf, fmtDay, fmtRange, fmtNum, fmtQty, isKey } from '../util.js';
 
 const DONE_KEY = 'planer.sessionDone';
@@ -66,6 +66,25 @@ export async function render(root, q, ctx) {
   ].join('');
   const stepHtml = (s, k, key, withName) => `<li>${chk(`${s.data}|${key}`, `${withName ? `<b>${h(k.potrawa)}</b> <span class="muted small">×${fmtNum(k.mnoznik, 2)}</span><br>` : ''}
       <span class="step-meta">${meta(k)}</span><br>${h(k.opis)}`)}${ingTable(k.skladniki, k.mnoznik)}</li>`;
+  // „pt obiad, kolacja · nd kolacja” – kiedy jest jedzone danie sesji
+  const dayAbbr = k => DAY_SHORT[dow(k) - 1];
+  const whenText = kiedy => {
+    const byDay = [];
+    (kiedy || []).forEach(x => {
+      const d = byDay.find(y => y.data === x.data) || (byDay.push({ data: x.data, typy: [] }), byDay[byDay.length - 1]);
+      if (!d.typy.includes(x.typ)) d.typy.push(x.typ);
+    });
+    const low = t => t.replace(/^(\p{Lu})(?=\p{Ll})/u, c => c.toLowerCase()); // „Obiad” → „obiad”, „II śniadanie” bez zmian
+    return byDay.map(d => `${dayAbbr(d.data)} ${d.typy.map(low).join(', ')}`).join(' · ');
+  };
+  const baseText = p => (p.dla || []).map(d => `${d.Nazwa}${d.dni.length ? ' (' + d.dni.map(dayAbbr).join(', ') + ')' : ''}`).join(', ');
+  const dishList = s => `<ul class="dish-list">${s.potrawy.map(p => `<li class="${p.baza ? 'base' : ''}">
+      <a href="#/przepis?id=${encodeURIComponent(p.ID_Pot)}&back=1">${MODE_ICON[p.tryb] || ''} ${h(p.Nazwa)}</a> <span class="muted small">×${fmtNum(p.mnoznik, 2)}</span>
+      <br><span class="small">${[
+        p.kiedy && p.kiedy.length ? `<span class="muted">🍽️ ${h(whenText(p.kiedy))}</span>` : '',
+        !p.baza ? '' : p.kiedy && p.kiedy.length ? `🧱 też baza do: ${h(baseText(p)) || 'dań tej sesji'}`
+          : `🧱 baza – nie jest posiłkiem z planu, gotujesz ją do: ${h(baseText(p)) || 'dań tej sesji'}`
+      ].filter(Boolean).join('<br>') || '<span class="muted">🍽️ na dni sesji</span>'}</span></li>`).join('')}</ul>`;
   const recipeLink = (id, name) => `<a href="#/przepis?id=${encodeURIComponent(id)}&back=1">${h(name)}</a>`;
 
   const drawTabs = () => {
@@ -85,7 +104,7 @@ export async function render(root, q, ctx) {
       <article class="card session">
         <div class="row-between"><h3>${h(s.nazwa)} · ${h(fmtDay(s.data, true))}</h3><span class="chip strong">≈ ${fmtNum(s.czas_min / 60, 1)} h</span></div>
         <p class="small muted">Gotujesz na: ${s.dni.map(k => h(fmtDay(k))).join(', ')}${s.staly === false ? ' · <b>sesja dodatkowa</b>' : ''}</p>
-        <div class="chips">${s.potrawy.map(p => `<a class="chip ${p.baza ? 'strong' : ''}" href="#/przepis?id=${encodeURIComponent(p.ID_Pot)}&back=1">${MODE_ICON[p.tryb] || ''} ${h(p.Nazwa)} ×${fmtNum(p.mnoznik, 2)}</a>`).join('')}</div>
+        ${dishList(s)}
         ${s.ostrzezenia.length ? `<div class="warnbox">${s.ostrzezenia.map(w => `<p>⚠️ ${h(w)}</p>`).join('')}</div>` : ''}
         <a class="btn block cm-start" href="#/gotuj?w=${from}&s=${tab}&sid=${encodeURIComponent(s.id || '')}">▶️ Tryb gotowania – krok po kroku</a>
         <div class="toolbar">
@@ -113,6 +132,8 @@ export async function render(root, q, ctx) {
             ${o.razem ? '<p class="small span2">Ta sama temperatura – można też razem w całym piekarniku, bez przegrody.</p>' : ''}</div>`).join('')}` : ''}
         ${s.dania.map((d, di) => `<div class="dish-block">
           <div class="row-between"><h4>${recipeLink(d.ID_Pot, d.Nazwa)} <span class="muted small">×${fmtNum(d.mnoznik, 2)}</span></h4><span class="chip">⏱ ${d.czas} min</span></div>
+          ${(() => { const p = s.potrawy.find(x => x.ID_Pot === d.ID_Pot); if (!p) return ''; return p.baza
+            ? `<p class="small">🧱 Baza do: ${h(baseText(p)) || 'dań tej sesji'}</p>` : (p.kiedy && p.kiedy.length ? `<p class="small muted">🍽️ ${h(whenText(p.kiedy))}</p>` : ''); })()}
           ${d.start ? `<p class="small ${d.po.length ? 'warn-text' : 'muted'}">${d.po.length ? '⏳ ' : '▶️ '}${h(d.start)}</p>` : ''}
           ${Math.abs(d.mnoznik - 1) > 0.15 ? `<p class="small muted">Liczby w opisach są dla przepisu ×1 – odmierzaj wg kolumny „× ${fmtNum(d.mnoznik, 2)}” (także wodę i przyprawy).</p>` : ''}
           <ol class="checklist steps-list">${d.kroki.map((k, ki) => stepHtml(s, k, `dish|${di}|${ki}`, false)).join('')}</ol>

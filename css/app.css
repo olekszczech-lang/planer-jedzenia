@@ -490,3 +490,10 @@ body.refreshing .topbar::after {
 @keyframes refreshbar { from { background-position: -60% 0; } to { background-position: 160% 0; } }
 @media (prefers-reduced-motion: reduce) { body.refreshing .topbar::after { animation: none; background-size: 100% 100%; opacity: .5; } }
 .fresh-note { margin: .25rem 0 .5rem; }
+
+/* ── v12: lista dań sesji z dniami ── */
+.dish-list { list-style: none; margin: 8px 0; padding: 0; }
+.dish-list li { padding: 7px 0; border-top: 1px solid var(--border); line-height: 1.35; }
+.dish-list li:first-child { border-top: 0; }
+.dish-list li a { color: var(--text); font-weight: 600; }
+.dish-list li.base { background: var(--accent-soft); border-radius: 8px; padding: 7px 10px; margin: 4px 0; border-top: 0; }
